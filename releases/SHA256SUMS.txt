@@ -1,0 +1,2 @@
+1ff261d93bc38f5a11b216f3f5101fd6d009c41aa00eb506c74bd50b8610e84b  TomatoLock-Portable-1.0.0-win-x64.zip
+ebb61c5740fa9a43cab8874236d8c5c4752bc51be8dee407d0e4a2a5d2925883  TomatoLock-Setup-1.0.0.exe
