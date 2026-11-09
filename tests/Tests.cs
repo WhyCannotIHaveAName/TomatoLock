@@ -23,13 +23,13 @@ public static class Tests {
             Assert(Logic.HostOnly("https://www.example.com/private?q=secret#token")=="www.example.com","only domain persisted");
             Assert(Logic.HostOnly("example.com/a")=="example.com","scheme-less browser URL");
             Assert(Logic.HostOnly("search words")=="" && Logic.HostOnly("secret")=="" && Logic.HostOnly("about:blank")=="","search terms and internal URLs not stored");
-            Assert(Logic.HostOnly("file:///C:/Documents/secret.txt")=="�����ļ�","file names not stored");
+            Assert(Logic.HostOnly("file:///C:/Documents/secret.txt")=="本地文件","file names not stored");
             Logic.AddUsage(recovered.Data,start.AddSeconds(2),2,"app","test.exe");
             Assert(recovered.Data.Usage.Count==2 && recovered.Data.Usage.All(x=>Math.Abs(x.Seconds-1)<0.001),"usage split exactly at local midnight");
             Logic.AddUsage(recovered.Data,start,3600,"app","invalid.exe"); Assert(recovered.Data.Usage.Count==2,"large usage gap ignored");
             for(int i=0;i<3;i++) recovered.Data.Sessions.Add(new Session { Id="done"+i, Started=start.AddDays(i).AddMinutes(-100),Ended=start.AddDays(i),ElapsedSeconds=6000,TargetSeconds=6000,Status="completed" });
             Assert(Logic.LongestStreak(recovered.Data.Sessions)==3,"three-day streak");
-            Assert(Logic.Achievements(recovered.Data).First(x=>x.Name=="�ٷ���Զ��").Unlocked,"100-minute achievement");
+            Assert(Logic.Achievements(recovered.Data).First(x=>x.Name=="百分钟远航").Unlocked,"100-minute achievement");
             recovered.Save(); Reports.Generate(recovered,"2026-11-09");
             Assert(File.ReadAllText(Path.Combine(root,"reports","2026-11-09.md")).Contains("test.exe"),"daily Markdown report");
             Assert(File.ReadAllText(Path.Combine(root,"reports","2026-11-09.csv")).Contains("\"app\""),"daily CSV report");

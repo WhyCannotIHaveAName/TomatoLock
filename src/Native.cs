@@ -33,7 +33,7 @@ namespace TomatoLock {
         [StructLayout(LayoutKind.Sequential)] public struct LastInput { public uint Size, Time; }
         [StructLayout(LayoutKind.Sequential)] struct Keyboard { public uint Key, Scan, Flags, Time; public IntPtr Extra; }
         [StructLayout(LayoutKind.Sequential)] struct Mouse { public Point Point; public uint Data, Flags, Time; public IntPtr Extra; }
-        public static double AwakeSeconds() { ulong value; if (!QueryUnbiasedInterruptTime(out value)) throw new InvalidOperationException("�޷���ȡϵͳ����ʱ��"); return value / 10000000.0; }
+        public static double AwakeSeconds() { ulong value; if (!QueryUnbiasedInterruptTime(out value)) throw new InvalidOperationException("无法读取系统单调时钟"); return value / 10000000.0; }
         public static double IdleSeconds() { LastInput info = new LastInput { Size = (uint)Marshal.SizeOf(typeof(LastInput)) }; return GetLastInputInfo(ref info) ? unchecked((uint)Environment.TickCount - info.Time) / 1000.0 : Double.MaxValue; }
         public static string ProcessPath(IntPtr window) {
             uint id; GetWindowThreadProcessId(window, out id);
@@ -60,7 +60,7 @@ namespace TomatoLock {
                 foreach(int key in new [] {27,46,162,163,160,161}) if((GetAsyncKeyState(key)&0x8000)!=0) keys.Update(key,true);
                 keyboardHook=SetWindowsHookEx(13,keyboardProc,GetModuleHandle(null),0);
                 mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
-                if(keyboardHook==IntPtr.Zero || mouseHook==IntPtr.Zero) { Dispose(); throw new InvalidOperationException("�޷���װרע�������أ�����רעû��������"); }
+                if(keyboardHook==IntPtr.Zero || mouseHook==IntPtr.Zero) { Dispose(); throw new InvalidOperationException("无法安装专注输入拦截；本次专注没有启动。"); }
             }
             IntPtr KeyboardEvent(int code, IntPtr message, IntPtr data) {
                 if(code>=0) {
@@ -94,8 +94,8 @@ namespace TomatoLock {
         public void Configure(IEnumerable<AllowedApp> apps) {
             paths.Clear(); cache.Clear(); paths.Add(self);
             foreach(var app in apps) {
-                if(!File.Exists(app.Path)) throw new InvalidOperationException(app.Name+" ���ƶ���ж�أ�������ѡ��");
-                if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException(app.Name+" �Ѹ��£���������������ȷ�Ͽ�ִ���ļ���");
+                if(!File.Exists(app.Path)) throw new InvalidOperationException(app.Name+" 已移动或卸载，请重新选择。");
+                if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException(app.Name+" 已更新，请在设置中重新确认可执行文件。");
                 paths.Add(app.Path);
             }
         }
@@ -117,8 +117,8 @@ namespace TomatoLock {
         public static string Qualify(string path) {
             string name=Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
             if(name=="chatgpt") return "ChatGPT";
-            if(new [] {"wps","et","wpp","wpspdf"}.Contains(name)) return "WPS �� " + name;
-            throw new InvalidOperationException("�������� ChatGPT.exe��wps.exe��et.exe��wpp.exe �� wpspdf.exe�����������ļ����������Ķ����� WPS �򿪡�");
+            if(new [] {"wps","et","wpp","wpspdf"}.Contains(name)) return "WPS · " + name;
+            throw new InvalidOperationException("仅可添加 ChatGPT.exe、wps.exe、et.exe、wpp.exe 或 wpspdf.exe。其他本地文件请用内置阅读器或 WPS 打开。");
         }
         public static List<string> Discover() {
             var result=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -158,7 +158,7 @@ namespace TomatoLock {
             for(int i=0;i<controls.Count;i++) {
                 var e=controls[i]; string id=e.Current.AutomationId; string name=e.Current.Name;
                 bool address=id=="addressEditBox" || id=="urlbar-input" || id=="omnibox" || id=="1001" ||
-                    name=="Address and search bar" || name=="��ַ��������" || name=="��ַ��������" || name=="Search with Google or enter address" || name=="Search or enter address" || name=="�����������ַ";
+                    name=="Address and search bar" || name=="地址和搜索栏" || name=="地址与搜索栏" || name=="Search with Google or enter address" || name=="Search or enter address" || name=="搜索或输入地址";
                 if(!address) continue;
                 object pattern; if(e.TryGetCurrentPattern(ValuePattern.Pattern,out pattern)) {
                     string host=Logic.HostOnly(((ValuePattern)pattern).Current.Value);

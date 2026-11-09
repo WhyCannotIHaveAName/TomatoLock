@@ -58,29 +58,29 @@ namespace TomatoLock {
         static State Read(string path) {
             State value = Serializer().Deserialize<State>(File.ReadAllText(path, Encoding.UTF8));
             if (value == null || value.Schema != 1 || value.Settings == null || value.Settings.Apps == null || value.Sessions == null || value.Usage == null)
-                throw new InvalidDataException("���ݸ�ʽ����֧��");
+                throw new InvalidDataException("数据格式不受支持");
             return value;
         }
         void Load() {
             string path = Path.Combine(Root, "state.json");
             if (!File.Exists(path)) {
-                if (File.Exists(path + ".bak")) { Data = Read(path + ".bak"); Notice = "�Ѵӱ��ݻָ���¼��"; }
+                if (File.Exists(path + ".bak")) { Data = Read(path + ".bak"); Notice = "已从备份恢复记录。"; }
                 else Data = new State();
             } else {
                 try { Data = Read(path); }
                 catch {
                     File.Copy(path, path + ".corrupt-" + DateTime.UtcNow.Ticks, false);
                     if (File.Exists(path + ".bak")) {
-                        try { Data = Read(path + ".bak"); Notice = "��¼�ļ��𻵣��ѻָ��ϴα��ݣ����ļ�������"; File.Delete(path); }
-                        catch { Data = new State(); Healthy = false; Notice = "��¼�����ݾ��𻵡�ԭ�ļ��ѱ��������޸����ٿ�ʼ��"; }
-                    } else { Data = new State(); Healthy = false; Notice = "��¼�ļ��𻵣��ѱ���ԭ�������޸����ٿ�ʼ��"; }
+                        try { Data = Read(path + ".bak"); Notice = "记录文件损坏，已恢复上次备份；损坏文件保留。"; File.Delete(path); }
+                        catch { Data = new State(); Healthy = false; Notice = "记录及备份均损坏。原文件已保留，请修复后再开始。"; }
+                    } else { Data = new State(); Healthy = false; Notice = "记录文件损坏，已保留原件。请修复后再开始。"; }
                 }
             }
             if (Data.Active != null) {
                 Data.Active.Status = "interrupted";
                 Data.Active.Ended = DateTimeOffset.Now;
                 Data.Sessions.Add(Data.Active); Data.Active = null;
-                Notice += " �ϴ�δ��ɵ�רע�Ѽ�Ϊ�жϣ���������ɳɾ͡�";
+                Notice += " 上次未完成的专注已记为中断，不授予完成成就。";
                 if (Healthy) Save();
             }
         }
@@ -114,7 +114,7 @@ namespace TomatoLock {
             Uri uri;
             if (!raw.Contains("://")) raw = "https://" + raw;
             if (!Uri.TryCreate(raw, UriKind.Absolute, out uri)) return "";
-            if (uri.IsFile) return "�����ļ�";
+            if (uri.IsFile) return "本地文件";
             if (uri.Scheme != "http" && uri.Scheme != "https") return "";
             if (uri.HostNameType == UriHostNameType.Unknown || String.IsNullOrEmpty(uri.Host)) return "";
             // A single word in an address bar may be a search query, not a domain.
@@ -147,18 +147,18 @@ namespace TomatoLock {
             var done = state.Sessions.Where(x => x.Status == "completed").ToList();
             double total = done.Sum(x => x.ElapsedSeconds);
             return new List<Achievement> {
-                new Achievement("��һ�ŷ���", "�������һ��רע", done.Count, 1),
-                new Achievement("������", "���һ������ 10 ���ӵ�רע", done.Count(x=>x.TargetSeconds >= 600), 1),
-                new Achievement("��������", "���һ������ 45 ���ӵ�רע", done.Count(x=>x.TargetSeconds >= 2700), 1),
-                new Achievement("�ٷ���Զ��", "���һ������ 100 ���ӵ�רע", done.Count(x=>x.TargetSeconds >= 6000), 1),
-                new Achievement("���ٳɶ�", "�ۼ���� 10 ��רע", done.Count, 10),
-                new Achievement("ʱ���ղؼ�", "�ۼ���� 10 Сʱ", total / 3600, 10),
-                new Achievement("�Ȳ�ǰ��", "���� 3 ����Ȼ�����רע", LongestStreak(done), 3),
-                new Achievement("һ�ܵ�Լ��", "���� 7 ����Ȼ�����רע", LongestStreak(done), 7),
-                new Achievement("СС��̱�", "�ۼ���� 50 Сʱ", total / 3600, 50)
+                new Achievement("第一颗番茄", "完整完成一次专注", done.Count, 1),
+                new Achievement("轻轻起步", "完成一次至少 10 分钟的专注", done.Count(x=>x.TargetSeconds >= 600), 1),
+                new Achievement("沉浸课堂", "完成一次至少 45 分钟的专注", done.Count(x=>x.TargetSeconds >= 2700), 1),
+                new Achievement("百分钟远航", "完成一次至少 100 分钟的专注", done.Count(x=>x.TargetSeconds >= 6000), 1),
+                new Achievement("积少成多", "累计完成 10 次专注", done.Count, 10),
+                new Achievement("时间收藏家", "累计完成 10 小时", total / 3600, 10),
+                new Achievement("稳步前行", "连续 3 个自然日完成专注", LongestStreak(done), 3),
+                new Achievement("一周的约定", "连续 7 个自然日完成专注", LongestStreak(done), 7),
+                new Achievement("小小里程碑", "累计完成 50 小时", total / 3600, 50)
             };
         }
-        public static string StatusName(string status) { return status == "completed" ? "�����" : status == "unlocked" ? "�ļ�����" : "�����ж�"; }
+        public static string StatusName(string status) { return status == "completed" ? "已完成" : status == "unlocked" ? "四键解锁" : "意外中断"; }
     }
     public class Achievement {
         public string Name, Description; public double Value, Target;
@@ -172,13 +172,13 @@ namespace TomatoLock {
             var sessions = store.Data.Sessions.Where(x => x.Ended.ToString("yyyy-MM-dd") == date).ToList();
             var rows = store.Data.Usage.Where(x => x.Date == date).OrderByDescending(x => x.Seconds).ToList();
             var done = sessions.Where(x => x.Status == "completed").ToList();
-            StringBuilder md = new StringBuilder("# TomatoLock �� " + date + "\n\n");
-            md.AppendFormat("��� **{0}** �Σ�רע **{1}**���ж� **{2}** �Ρ�\n\n", done.Count, Logic.Duration(done.Sum(x=>x.ElapsedSeconds)), sessions.Count-done.Count);
-            md.Append("רע�������չ鵵��Ӧ��/��վ��ʹ�÷����չ鵵��Ӧ��ͳ��Ϊǰ̨��Ծʱ�䣬���������볬��������ֵ���ټ�ʱ����վ�������ʱ�����ϸ��������Ӧ��ʱ����ӡ�δ����ͳ�ƻ��޷���ȡ��ʱ�䲻�ᱻ�²ⲹ�롣\n\n");
-            md.Append("## רע��¼\n\n| ��ʼ | ���� | Ŀ�� | ʵ�� | ��� |\n|---|---|---|---|---|\n");
+            StringBuilder md = new StringBuilder("# TomatoLock · " + date + "\n\n");
+            md.AppendFormat("完成 **{0}** 次，专注 **{1}**；中断 **{2}** 次。\n\n", done.Count, Logic.Duration(done.Sum(x=>x.ElapsedSeconds)), sessions.Count-done.Count);
+            md.Append("专注按结束日归档；应用/网站按使用发生日归档。应用统计为前台活跃时间，连续无输入超过设置阈值后不再计时；网站是浏览器时间的明细，不能与应用时间相加。未开启统计或无法读取的时间不会被猜测补齐。\n\n");
+            md.Append("## 专注记录\n\n| 开始 | 结束 | 目标 | 实际 | 结果 |\n|---|---|---|---|---|\n");
             foreach(var s in sessions) md.AppendFormat("| {0:HH:mm:ss} | {1:HH:mm:ss} | {2} | {3} | {4} |\n", s.Started, s.Ended, Logic.Duration(s.TargetSeconds), Logic.Duration(s.ElapsedSeconds), Logic.StatusName(s.Status));
             foreach(string kind in new [] {"app", "site"}) {
-                md.Append("\n## " + (kind == "app" ? "Ӧ��" : "��վ����������") + "\n\n| ���� | ��Ծʱ�� |\n|---|---|\n");
+                md.Append("\n## " + (kind == "app" ? "应用" : "网站（仅域名）") + "\n\n| 名称 | 活跃时长 |\n|---|---|\n");
                 foreach(var r in rows.Where(x=>x.Kind==kind)) md.Append("| " + Cell(r.Name) + " | " + Logic.Duration(r.Seconds) + " |\n");
             }
             string dir = Path.Combine(store.Root, "reports");

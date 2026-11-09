@@ -26,7 +26,7 @@ namespace TomatoLock {
             string identity;
             using(var sha=System.Security.Cryptography.SHA256.Create()) identity=BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(DataRoot.TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant()))).Replace("-","");
             using(var mutex=new Mutex(true,"Local\\TomatoLock-"+identity,out created)) {
-                if(!created) { if(!args.Contains("--startup")) MessageBox.Show("TomatoLock �������У����ϵͳ���̴򿪡�","TomatoLock"); return 0; }
+                if(!created) { if(!args.Contains("--startup")) MessageBox.Show("TomatoLock 已在运行，请从系统托盘打开。","TomatoLock"); return 0; }
                 try {
                     var app=new Application();
                     Window window;
@@ -39,7 +39,7 @@ namespace TomatoLock {
                     app.Run(window); return 0;
                 } catch(Exception e) {
                     try { Directory.CreateDirectory(DataRoot); File.AppendAllText(Path.Combine(DataRoot,"startup-error.log"),DateTimeOffset.Now+"\n"+e+"\n"); } catch {}
-                    MessageBox.Show("TomatoLock �޷�������\n"+e.Message+"\n\n�������飺"+Path.Combine(DataRoot,"startup-error.log"),"TomatoLock"); return 1;
+                    MessageBox.Show("TomatoLock 无法启动：\n"+e.Message+"\n\n错误详情："+Path.Combine(DataRoot,"startup-error.log"),"TomatoLock"); return 1;
                 }
             }
         }
