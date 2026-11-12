@@ -2,12 +2,12 @@
 
 一个离线可用的 Windows 桌面番茄钟：把眼前的事情慢慢做好。
 
-**v1.0.0 · Windows 10 1903+ / Windows 11，x64 · .NET Framework 4.8 · MIT**
+**v1.1.0 · Windows 10 1903+ / Windows 11，x64 · .NET Framework 4.8 · MIT**
 
 ## 下载与安装
 
-- **[下载安装版 TomatoLock-Setup-1.0.0.exe](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Setup-1.0.0.exe)**
-- **[下载免安装版 TomatoLock-Portable-1.0.0-win-x64.zip](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Portable-1.0.0-win-x64.zip)**
+- **[下载安装版 TomatoLock-Setup-1.1.0.exe](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Setup-1.1.0.exe)**
+- **[下载免安装版 TomatoLock-Portable-1.1.0-win-x64.zip](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Portable-1.1.0-win-x64.zip)**
 - [SHA-256 校验值](releases/SHA256SUMS.txt)
 
 安装版安装到当前用户的 `%LocalAppData%\Programs\TomatoLock`，创建开始菜单入口，并支持在 Windows「已安装的应用」中卸载。无需管理员权限，**安装不会开启使用统计或开机自启**。卸载保留记录；删除统计可以在软件内操作。免安装版解压后双击 `TomatoLock.exe`，请同时保留旁边的 `.config` 文件。
@@ -17,6 +17,18 @@
 现代 Windows 已包含所需的 .NET Framework 4.8。程序自身离线运行；ChatGPT / WPS 的联网能力取决于它们自己。
 
 ![主界面](docs/focus.png)
+
+## v1.1.0 · 番茄熟成计划
+
+- “打开 ChatGPT”优先恢复已运行窗口；商店 / MSIX 版本使用 Windows 应用激活接口，普通安装版继续使用 exe。仍验证已确认路径及文件哈希；应用升级后请重新识别。
+- 修复 GUI 核验子进程设置控制台编码时出现“句柄无效”，导致资源管理器始终无法获准的问题；同时处理新窗口等待核验时的焦点交接。浏览器域名核验共用的管道也一并修复。
+- 奶油底色、番茄红计时器、叶片绿侧栏；你提供的 12 张插画内嵌进程序，离线可用。
+- 新成就：**硅基生物**（ChatGPT 累计活跃 10 小时）、**烂番茄**（主动提前解锁 3 次）、**表格炼金术士**（WPS 累计活跃 5 小时）。崩溃不计烂番茄，网站时间不重复加入应用成就。
+- 解锁提示卡与两种原创短旋律；设置里可试听或静音。已解锁徽章永久保留，清除应用统计也不会收回。升级时根据现有记录补记徽章，不连续弹旧成就。
+
+先从托盘退出旧版，再运行新版安装器。原有 `%LocalAppData%\TomatoLock` 记录、统计与设置继续使用，无需搬迁；不自动开启任何统计。
+
+![番茄图鉴](docs/achievements.png)
 
 ## 第一次使用
 
@@ -30,7 +42,7 @@
 
 ## 功能与边界
 
-| 功能 | v1.0.0 的行为 |
+| 功能 | v1.1.0 的行为 |
 |---|---|
 | 原生离线 UI | WPF 界面、系统本地日期时钟、托盘、完成提示 |
 | 自定义时间 | 10 / 25 / 45 / 60 / 100 分钟预设，1–720 整数分钟自定义 |
@@ -40,7 +52,7 @@
 | 四键解锁 | 全局键盘钩子检测四键重叠按住 1 秒。专注中 Esc 被保留，不会传给其他应用 |
 | 持久化 | 每 5 秒原子写入 JSON，保留上一份备份；完成时立即保存。强杀 / 崩溃后恢复为中断，最多损失最近一个保存周期 |
 | 计时可靠性 | 用系统单调的醒着时间计时，改系统时间不会增加专注时长；睡眠、休眠、锁屏不计入。超过 2.5 秒的处理停顿不补记 |
-| 成就 | 首次完成、10 / 45 / 100 分钟单次目标、10 次、10 / 50 小时、连续 3 / 7 天，共 9 项 |
+| 成就 | 12 张番茄插画、收集进度、永久徽章与解锁提示；包括硅基生物、烂番茄、表格炼金术士；离线原创短旋律可关闭 |
 | 可选后台统计 | 默认关闭；只统计前台应用活跃时长。默认无输入超过 180 秒后停止计入，可设 30–3600 秒。阅读期间如果长时间没有输入，也会被统计为空闲；番茄计时不受空闲阈值影响 |
 | 可选域名统计 | 需要单独同意；通过 Windows UI Automation 读取地址栏，约每 1.5 秒采样，保留域名与时长。失败单列「未识别网站」 |
 | 开机自启 | 单独勾选并保存后，登记当前用户 Run 项；Windows 登录后启动并收起到托盘 |
@@ -84,12 +96,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 
 这个模式会在目录里写入 `startup-ready.txt` 供启动检查。不要在未结束专注时更换数据目录；多个目录属于彼此独立的实例。
 
-验证结果和待手动检查的项目见 [TESTING.md](TESTING.md)。本次已验证编译、26 项逻辑检查、4 个页面渲染、自定义时长显示、安装载荷以及实际窗口加载。**未声称在所有 Windows / 浏览器版本上完成实机兼容性测试，也未完成四键持续按住、跨应用限制、安装/卸载、自启和浏览器地址栏的端到端实测。**
+验证结果和待手动检查的项目见 [TESTING.md](TESTING.md)。本次已验证编译、43 项逻辑检查、4 个页面渲染、自定义时长显示、安装载荷以及实际窗口加载。**未声称在所有 Windows / 浏览器版本上完成实机兼容性测试，也未完成四键持续按住、跨应用限制、安装/卸载、自启和浏览器地址栏的端到端实测。**
 
 ## 源码结构
 
 ```text
 src/Core.cs            数据、计时、成就、日报
+src/AppLauncher.cs     已运行窗口复用 / 商店应用激活
+src/TomatoArt.cs       内嵌番茄图集 / 原创离线解锁旋律
 src/Native.cs          Win32 输入拦截、允许列表、隔离地址栏读取
 src/Main.xaml          原生桌面界面
 src/MainController.cs  交互、生命周期、采样调度

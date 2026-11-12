@@ -44,6 +44,39 @@ public static class Tests {
             chord.Update(27,false); Assert(!chord.Complete,"releasing a required key cancels chord");
             chord.Reset(); foreach(int key in new [] {46,161,163,27})chord.Update(key,true); Assert(chord.Complete,"right-side modifiers and different key order accepted");
             chord.Reset(); Assert(!chord.Complete,"lock-screen reset clears stale keys");
+            var handoff=new FolderHandoff(); var folder=new IntPtr(17);
+            handoff.Observe(folder,10); Assert(handoff.Waiting(folder,13.9),"new Explorer retains focus while verification runs");
+            handoff.Observe(folder,13.9); Assert(!handoff.Waiting(folder,14),"repeated input cannot extend unverified folder grace");
+            Assert(!handoff.Waiting(new IntPtr(18),11),"folder grace is scoped to one window");
+            handoff.Reset(); Assert(!handoff.Waiting(folder,11),"new focus session clears handoff");
+            var awards=new State();
+            awards.Usage.Add(new Usage {Kind="app",Name="CHATGPT.EXE",Seconds=35999});
+            awards.Usage.Add(new Usage {Kind="site",Name="chatgpt.com",Seconds=72000});
+            Assert(!Logic.Achievements(awards).First(x=>x.Id=="silicon").Unlocked,"silicon counts app time only and respects threshold");
+            awards.Usage[0].Seconds++;
+            Assert(Logic.CaptureAwards(awards).Single().Id=="silicon","silicon unlocks at ten active hours");
+            Assert(Logic.CaptureAwards(awards).Count==0,"achievement notifications are not repeated");
+            awards.Usage.Clear(); Assert(Logic.Achievements(awards).First(x=>x.Id=="silicon").Unlocked,"clearing usage retains earned badges");
+            for(int i=0;i<3;i++) awards.Sessions.Add(new Session {Status="interrupted"});
+            Assert(!Logic.Achievements(awards).First(x=>x.Id=="rotten").Unlocked,"crashes do not count as rotten tomatoes");
+            for(int i=0;i<2;i++) awards.Sessions.Add(new Session {Status="unlocked"});
+            Assert(!Logic.Achievements(awards).First(x=>x.Id=="rotten").Unlocked,"two early unlocks stay below threshold");
+            awards.Sessions.Add(new Session {Status="unlocked"});
+            Assert(Logic.CaptureAwards(awards).Single().Id=="rotten","third deliberate unlock earns rotten tomato");
+            awards.Usage.Add(new Usage {Kind="app",Name="et.exe",Seconds=9000}); awards.Usage.Add(new Usage {Kind="app",Name="WPS.exe",Seconds=9000});
+            Assert(Logic.CaptureAwards(awards).Single().Id=="office","WPS modules combine for office achievement");
+            var awardStore=new Store(Path.Combine(root,"awards")); awardStore.Data=awards; awardStore.Data.Settings.Muted=true; awardStore.Save();
+            var reloadAwards=new Store(awardStore.Root);
+            Assert(reloadAwards.Data.Awards.Count==3 && reloadAwards.Data.Settings.Muted,"awards and mute survive restart");
+            string legacy=Path.Combine(root,"legacy"); Directory.CreateDirectory(legacy);
+            File.WriteAllText(Path.Combine(legacy,"state.json"),"{\"Schema\":1,\"Settings\":{\"Apps\":[],\"IdleSeconds\":180},\"Sessions\":[],\"Usage\":[]}");
+            var migrated=new Store(legacy); Assert(migrated.Healthy && migrated.Data.Awards!=null && !migrated.Data.Settings.Muted,"v1.0 settings load without reset");
+            string package=Path.Combine(root,"Test.Package_1.0.0.0_x64__publisher"), exe=Path.Combine(package,"app","fixture.exe"); Directory.CreateDirectory(Path.GetDirectoryName(exe)); File.WriteAllText(exe,"fixture");
+            File.WriteAllText(Path.Combine(package,"AppxManifest.xml"),"<Package><Identity Name=\"Test.Package\"/><Applications><Application Id=\"Main\" Executable=\"app\\fixture.exe\"/></Applications></Package>");
+            Assert(AppLauncher.ResolveId(exe)=="Test.Package_publisher!Main","cold MSIX launch resolves matching manifest application");
+            Assert(AppLauncher.ResolveId(Path.Combine(package,"other.exe"))=="","manifest must match exact approved executable");
+            bool refusedLaunch=false; try { AppLauncher.Launch(new AllowedApp {Path=exe,Sha256="changed"}); } catch(InvalidOperationException) {refusedLaunch=true;}
+            Assert(refusedLaunch,"changed executable is rejected before activation");
             Console.WriteLine("All "+count+" checks passed."); return 0;
         } catch(Exception e) { Console.Error.WriteLine(e); return 1; }
         finally { if(Directory.Exists(root)) Directory.Delete(root,true); }

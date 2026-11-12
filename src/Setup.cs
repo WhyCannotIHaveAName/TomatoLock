@@ -8,8 +8,8 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 
 [assembly: AssemblyTitle("TomatoLock Setup")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 public static class Setup {
     static readonly string InstallDir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","TomatoLock");
     static readonly string Shortcut=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),"TomatoLock.lnk");
@@ -19,7 +19,7 @@ public static class Setup {
         try {
             if(args.Length>0 && args[0]=="--verify") { using(var s=Assembly.GetExecutingAssembly().GetManifestResourceStream("TomatoLock.exe")) return s!=null && s.Length>10000 ? 0 : 1; }
             if(args.Length>0 && args[0]=="--uninstall") { Uninstall(); return 0; }
-            var form=new Form { Text="安装 TomatoLock 1.0.0",ClientSize=new Size(540,365),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,BackColor=Color.FromArgb(246,247,243),Font=new Font("Microsoft YaHei UI",10) };
+            var form=new Form { Text="安装 TomatoLock 1.1.0",ClientSize=new Size(540,365),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,BackColor=Color.FromArgb(246,247,243),Font=new Font("Microsoft YaHei UI",10) };
             form.Controls.Add(new Label { Text="TomatoLock",Font=new Font("Segoe UI",28,FontStyle.Bold),ForeColor=Color.FromArgb(24,63,53),Location=new Point(30,24),AutoSize=true });
             form.Controls.Add(new Label { Text="离线番茄钟 · 专注限制 · 本地记录与成就",Location=new Point(33,90),AutoSize=true });
             form.Controls.Add(new Label { Text="安装到当前用户，无需管理员权限。\n使用统计和开机自启默认关闭，可稍后在设置中选择。\n\n安装位置：\n"+InstallDir,Location=new Point(33,135),Size=new Size(475,105) });
@@ -49,7 +49,7 @@ public static class Setup {
         type.InvokeMember("WorkingDirectory",BindingFlags.SetProperty,null,shortcut,new object[]{InstallDir}); type.InvokeMember("Save",BindingFlags.InvokeMethod,null,shortcut,null);
         System.Runtime.InteropServices.Marshal.ReleaseComObject(shortcut); System.Runtime.InteropServices.Marshal.ReleaseComObject(shell);
         using(var key=Registry.CurrentUser.CreateSubKey(UninstallKey)) {
-            key.SetValue("DisplayName","TomatoLock"); key.SetValue("DisplayVersion","1.0.0"); key.SetValue("Publisher","TomatoLock contributors");
+            key.SetValue("DisplayName","TomatoLock"); key.SetValue("DisplayVersion","1.1.0"); key.SetValue("Publisher","TomatoLock contributors");
             key.SetValue("InstallLocation",InstallDir); key.SetValue("DisplayIcon",Path.Combine(InstallDir,"TomatoLock.exe"));
             key.SetValue("UninstallString","\""+Path.Combine(InstallDir,"Uninstall.exe")+"\" --uninstall"); key.SetValue("NoModify",1); key.SetValue("NoRepair",1);
         }

@@ -114,6 +114,10 @@ namespace TomatoLock {
             cache[window]=result; return result;
         }
         public bool AllowsPath(string path) { return paths.Contains(path); }
+        public bool IsFolderWindow(IntPtr window) {
+            string cls=Native.ClassName(window);
+            return (cls=="CabinetWClass" || cls=="ExploreWClass") && String.Equals(Native.ProcessPath(window),explorer,StringComparison.OrdinalIgnoreCase);
+        }
         public static string Qualify(string path) {
             string name=Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
             if(name=="chatgpt") return "ChatGPT";
@@ -133,8 +137,8 @@ namespace TomatoLock {
         }
     }
     public static class SiteProbe {
-        public static string LocalFolders() {
-            object shell=null, windows=null; var handles=new List<string>();
+        public static string LocalFolders(string requested=null) {
+            object shell=null, windows=null; var handles=new List<string>(); string matching=""; string matching="";
             try {
                 shell=Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
                 windows=shell.GetType().InvokeMember("Windows",System.Reflection.BindingFlags.InvokeMethod,null,shell,null);
@@ -144,11 +148,13 @@ namespace TomatoLock {
                         Uri uri; if(!Uri.TryCreate(url,UriKind.Absolute,out uri) || !uri.IsFile || uri.IsUnc) continue;
                         string root=Path.GetPathRoot(uri.LocalPath); var drive=new DriveInfo(root);
                         if(drive.DriveType!=DriveType.Fixed && drive.DriveType!=DriveType.Removable && drive.DriveType!=DriveType.CDRom) continue;
-                        handles.Add(Convert.ToInt64(t.InvokeMember("HWND",System.Reflection.BindingFlags.GetProperty,null,window,null)).ToString());
+                        string handle=Convert.ToInt64(t.InvokeMember("HWND",System.Reflection.BindingFlags.GetProperty,null,window,null)).ToString();
+                        handles.Add(handle);
+                        if(!String.IsNullOrEmpty(requested) && String.Equals(Path.GetFullPath(uri.LocalPath).TrimEnd('\\'),Path.GetFullPath(requested).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase)) matching=handle;
                     } catch {} finally { if(Marshal.IsComObject(window)) Marshal.ReleaseComObject(window); }
                 }
             } finally { if(windows!=null && Marshal.IsComObject(windows)) Marshal.ReleaseComObject(windows); if(shell!=null && Marshal.IsComObject(shell)) Marshal.ReleaseComObject(shell); }
-            return String.Join(",",handles);
+            return String.Join(",",handles)+(requested==null?"":"|"+matching);
         }
         // This runs in a short-lived child process: an unresponsive accessibility provider cannot freeze the timer or unlock keys.
         public static string Read(IntPtr handle) {

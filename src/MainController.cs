@@ -20,6 +20,11 @@ namespace TomatoLock {
         readonly Window window;
         readonly Store store;
         readonly AppPolicy policy=new AppPolicy();
+        readonly FolderHandoff folderHandoff=new FolderHandoff();
+        readonly Queue<Achievement> celebrations=new Queue<Achievement>();
+        double toastUntil;
+        string pendingDirectory=""; double directoryUntil;
+
         readonly DispatcherTimer timer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(100) };
         readonly Forms.NotifyIcon tray;
         Native.InputGate gate;
@@ -68,21 +73,37 @@ namespace TomatoLock {
             C<DatePicker>("ReportDate").SelectedDateChanged+=(s,e)=>History();
             SystemEvents.SessionSwitch+=SessionSwitch;
             last=savedAt=renderedAt=Native.AwakeSeconds();
+            C<Image>("HeroTomato").Source=TomatoArt.Badge(0);
+            C<Image>("BrandTomato").Source=TomatoArt.Badge(1);
+            Click("PreviewSound",()=>TomatoArt.Play(false));
+            Click("CloseAchievement",()=>{ toastUntil=0; C<Border>("AchievementToast").Visibility=Visibility.Collapsed; });
+            if(Logic.CaptureAwards(store.Data).Count>0 && store.Healthy) store.Save();
             LoadSettings(); Render(); History(); Achievements();
             Run(()=>Reports.CatchUp(store));
             if(!String.IsNullOrEmpty(store.Notice)) Status(store.Notice);
             timer.Tick+=(s,e)=>Tick(); timer.Start();
         }
         void Show() { window.Show(); window.WindowState=WindowState.Normal; window.Activate(); }
-        void Wake() { if(!Active) return; if(!window.IsVisible) window.Show(); if(window.WindowState==WindowState.Minimized) window.WindowState=WindowState.Normal; Native.SetForegroundWindow(handle); }
+        bool AllowedInput(IntPtr target) {
+            bool allowed=policy.Allowed(target);
+            if(!allowed && policy.IsFolderWindow(target)) folderHandoff.Observe(target,Native.AwakeSeconds());
+            return allowed;
+        }
+        void Wake() { if(!Active) return;
+            IntPtr foreground=Native.GetForegroundWindow();
+            if(policy.IsFolderWindow(foreground)) {
+                folderHandoff.Observe(foreground,Native.AwakeSeconds());
+                if(folderHandoff.Waiting(foreground,Native.AwakeSeconds())) return;
+            }
+ if(!window.IsVisible) window.Show(); if(window.WindowState==WindowState.Minimized) window.WindowState=WindowState.Normal; Native.SetForegroundWindow(handle); }
         void Page(string page) {
             foreach(string p in new [] {"Focus","History","Achievements","Settings"}) {
                 C<ScrollViewer>(p+"Page").Visibility=p==page ? Visibility.Visible : Visibility.Collapsed;
                 C<Button>("Nav"+p).Background=new SolidColorBrush(p==page ? Color.FromRgb(220,233,205) : Color.FromRgb(40,82,69));
                 C<Button>("Nav"+p).Foreground=p==page ? new SolidColorBrush(Color.FromRgb(35,60,53)) : Brushes.White;
             }
-            C<TextBlock>("PageTitle").Text=page=="Focus" ? "专注，从这一刻开始" : page=="History" ? "时间有迹可循" : page=="Achievements" ? "每一步，都算数" : "让专注适合你";
-            C<TextBlock>("PageSubtitle").Text=page=="Focus" ? "选一个时长，把眼前的事情慢慢做好。" : page=="History" ? "在这里，看看时间去了哪里。" : page=="Achievements" ? "只和自己的昨天相比。" : "所有统计与开机自启，都由你决定。";
+            C<TextBlock>("PageTitle").Text=page=="Focus" ? "专注，从这一刻开始" : page=="History" ? "时间有迹可循" : page=="Achievements" ? "番茄图鉴" : "让专注适合你";
+            C<TextBlock>("PageSubtitle").Text=page=="Focus" ? "选一个时长，把眼前的事情慢慢做好。" : page=="History" ? "在这里，看看时间去了哪里。" : page=="Achievements" ? "十二种番茄，十二种精神状态。你会养出哪一种？" : "所有统计与开机自启，都由你决定。";
             if(page=="History") History(); if(page=="Achievements") Achievements();
         }
         int Minutes() { int n; return Int32.TryParse(C<TextBox>("CustomMinutes").Text,out n) && n>=1 && n<=720 ? n : 0; }
@@ -93,18 +114,18 @@ namespace TomatoLock {
             policy.Configure(store.Data.Settings.Apps);
             if(MessageBox.Show(window,"即将专注 "+minutes+" 分钟。\n\n仅允许已确认的 ChatGPT、WPS、本地文件浏览和内置阅读器。其他前台应用会被拦截，未保存的内容不会被关闭。\n\n提前结束：同时按住 Esc + Ctrl + Delete + Shift 1 秒。专注期间 Esc 不会传给其他应用。睡眠 / 锁屏暂停计时。\n\n这是应用级限制，无法封锁 Windows 安全界面或强制结束进程。开始吗？","开始专注",MessageBoxButton.OKCancel,MessageBoxImage.Information)!=MessageBoxResult.OK) return;
             store.Data.Active=new Session { Id=Guid.NewGuid().ToString("N"), Started=DateTimeOffset.Now, TargetSeconds=minutes*60, Status="active" };
-            try { store.Save(); gate=new Native.InputGate(policy.Allowed,()=>window.Dispatcher.BeginInvoke(new Action(Wake))); }
+            try { store.Save(); gate=new Native.InputGate(AllowedInput,()=>window.Dispatcher.BeginInvoke(new Action(Wake))); }
             catch { store.Data.Active=null; store.Save(); throw; }
-            last=Native.AwakeSeconds(); chordAt=-1; Page("Focus"); Render(); SetEditable(false); Status("正在专注 · Esc + Ctrl + Delete + Shift 同时按住 1 秒可提前结束。");
+            folderHandoff.Reset(); Folders(); last=Native.AwakeSeconds(); chordAt=-1; Page("Focus"); Render(); SetEditable(false); Status("正在专注 · Esc + Ctrl + Delete + Shift 同时按住 1 秒可提前结束。");
         }
         void Finish(string status) {
             if(!Active) return;
             if(gate!=null) { gate.Dispose(); gate=null; }
             Session session=store.Data.Active; session.Status=status; session.Ended=DateTimeOffset.Now;
             store.Data.Active=null; store.Data.Sessions.Add(session); chordAt=-1;
-            SetEditable(true); store.Save(); Reports.Generate(store,session.Ended.ToString("yyyy-MM-dd")); Render();
+            SetEditable(true); CaptureAwards(); store.Save(); Reports.Generate(store,session.Ended.ToString("yyyy-MM-dd")); Render();
             if(status=="completed") {
-                System.Media.SystemSounds.Asterisk.Play(); Show();
+                if(!store.Data.Settings.Muted && celebrations.Count==0) TomatoArt.Play(false); Show();
                 Status("这一段专注完成了："+Logic.Duration(session.ElapsedSeconds)+"。起来活动一下吧。");
                 tray.ShowBalloonTip(5000,"专注完成", "已记录 "+Logic.Duration(session.ElapsedSeconds)+"，辛苦了。", Forms.ToolTipIcon.Info);
             } else Status("已解锁；本次实际专注 "+Logic.Duration(session.ElapsedSeconds)+" 已保留，不计入完成成就。");
@@ -112,7 +133,7 @@ namespace TomatoLock {
         void SetEditable(bool value) {
             foreach(string name in new [] {"DiscoverApps","AddApp","SaveSettings","ClearUsage"}) C<Button>(name).IsEnabled=value;
             C<StackPanel>("AllowedRows").IsEnabled=value;
-            foreach(string name in new [] {"TrackApps","TrackSites","Startup"}) C<CheckBox>(name).IsEnabled=value;
+            foreach(string name in new [] {"TrackApps","TrackSites","Startup","MuteSounds"}) C<CheckBox>(name).IsEnabled=value;
             C<TextBox>("IdleLimit").IsEnabled=value;
             if(value) C<CheckBox>("TrackSites").IsEnabled=C<CheckBox>("TrackApps").IsChecked==true;
         }
@@ -130,11 +151,13 @@ namespace TomatoLock {
                     IntPtr foreground=Native.GetForegroundWindow();
                     if(!policy.Allowed(foreground)) { Wake(); }
                 }
-                if(now-folderAt>=1 && !folderBusy) { folderAt=now; Folders(); }
+                if(now-folderAt>=0.5 && !folderBusy) { folderAt=now; Folders(); }
             }
             Track(now,delta);
+            if(C<Border>("AchievementToast").Visibility==Visibility.Visible && now>=toastUntil) C<Border>("AchievementToast").Visibility=Visibility.Collapsed;
+            if(C<Border>("AchievementToast").Visibility!=Visibility.Visible && celebrations.Count>0) Celebrate(celebrations.Dequeue(),now);
             if(now-renderedAt>=0.5) { renderedAt=now; Render(); }
-            if(now-savedAt>=5) { savedAt=now; if(store.Healthy && (Active || store.Data.Settings.TrackApps)) store.Save(); }
+            if(now-savedAt>=5) { savedAt=now; if(store.Healthy && (Active || store.Data.Settings.TrackApps)) { CaptureAwards(); store.Save(); } }
             string date=DateTime.Now.ToString("yyyy-MM-dd");
             if(date!=lastDate) { Reports.Generate(store,lastDate); Reports.CatchUp(store); lastDate=date; }
         }
@@ -157,11 +180,27 @@ namespace TomatoLock {
                 Probe("--probe "+foreground.ToInt64(),result=>{ probeBusy=false; if(disposed || gen!=consentGeneration || !store.Data.Settings.TrackSites) return; site=result; siteWindow=foreground; siteAt=Native.AwakeSeconds(); });
             }
         }
-        void Folders() { folderBusy=true; Probe("--folders",result=>{ folderBusy=false; if(!disposed) policy.SetLocalFolders(result); }); }
+        void Folders() {
+            if(folderBusy) return;
+            folderBusy=true;
+            string requested=pendingDirectory;
+            Probe("--folders"+(String.IsNullOrEmpty(requested)?"":" "+Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(requested))),result=>{
+                folderBusy=false; if(disposed) return;
+                string[] parts=result.Split('|'); policy.SetLocalFolders(parts[0]);
+                if(Active && requested==pendingDirectory && !String.IsNullOrEmpty(requested) && Native.AwakeSeconds()<directoryUntil && parts.Length>1) {
+                    long id; IntPtr current=Native.GetForegroundWindow();
+                    if(Int64.TryParse(parts[1],out id) && policy.Allowed(new IntPtr(id))) {
+                        // Restore only a requested, verified folder while our own window still owns focus.
+                        if(current==handle || current==new IntPtr(id)) { Native.ShowWindowAsync(new IntPtr(id),9); Native.SetForegroundWindow(new IntPtr(id)); }
+                        pendingDirectory="";
+                    }
+                }
+            });
+        }
         void Probe(string args,Action<string> done) {
             Task.Factory.StartNew(()=>{
                 try { using(var p=new Process { StartInfo=new ProcessStartInfo(Program.Exe,args) { UseShellExecute=false, CreateNoWindow=true, RedirectStandardOutput=true, StandardOutputEncoding=System.Text.Encoding.UTF8 } }) {
-                    p.Start(); if(!p.WaitForExit(1300)) { p.Kill(); return ""; } return p.StandardOutput.ReadToEnd().Trim();
+                    p.Start(); if(!p.WaitForExit(2500)) { p.Kill(); return ""; } return p.StandardOutput.ReadToEnd().Trim();
                 } } catch { return ""; }
             }).ContinueWith(t=>{ if(!disposed) window.Dispatcher.BeginInvoke(new Action(()=>done(t.Result))); });
         }
@@ -171,10 +210,10 @@ namespace TomatoLock {
             double seconds=Active ? Math.Ceiling(store.Data.Active.TargetSeconds-store.Data.Active.ElapsedSeconds) : Minutes()*60;
             TimeSpan remaining=TimeSpan.FromSeconds(Math.Max(0,seconds));
             C<TextBlock>("Countdown").Text=((int)remaining.TotalMinutes).ToString("00")+":"+remaining.Seconds.ToString("00");
-            C<TextBlock>("SessionLabel").Text=Active ? locked ? "系统已锁屏 · 计时暂停" : "专注进行中，慢慢来" : "给专注留一块安静的地方";
+            C<TextBlock>("SessionLabel").Text=Active ? locked ? "系统已锁屏 · 计时暂停" : "正在慢慢熟成，别急" : "今天，种下一颗专注番茄";
             C<TextBlock>("EndEstimate").Text=Active ? "预计 "+DateTime.Now.AddSeconds(seconds).ToString("HH:mm")+" 完成 · 睡眠与锁屏顺延" : "准备好了，就开始吧";
             C<ProgressBar>("TimerProgress").Value=Active ? store.Data.Active.ElapsedSeconds/store.Data.Active.TargetSeconds*100 : 0;
-            C<Button>("StartButton").IsEnabled=!Active && store.Healthy; C<Button>("StartButton").Content=Active ? "正在专注" : "开始专注";
+            C<Button>("StartButton").IsEnabled=!Active && store.Healthy; C<Button>("StartButton").Content=Active ? "番茄熟成中" : "种下这颗番茄";
             C<TextBox>("CustomMinutes").IsEnabled=!Active; C<WrapPanel>("Presets").IsEnabled=!Active;
             var done=store.Data.Sessions.Where(x=>x.Status=="completed" && x.Ended.Date==DateTime.Now.Date).ToList();
             C<TextBlock>("TodaySummary").Text="今天已完成 "+done.Count+" 次专注 · 共 "+Logic.Duration(done.Sum(x=>x.ElapsedSeconds));
@@ -198,24 +237,46 @@ namespace TomatoLock {
             }
             if(usage.Children.Count==0) usage.Children.Add(Text("所选日期暂无应用统计。可在偏好设置中自愿开启。",12));
         }
+        void CaptureAwards() {
+            foreach(var achievement in Logic.CaptureAwards(store.Data)) celebrations.Enqueue(achievement);
+            if(C<ScrollViewer>("AchievementsPage").Visibility==Visibility.Visible) Achievements();
+        }
+        void Celebrate(Achievement achievement,double now) {
+            C<Image>("ToastImage").Source=TomatoArt.Badge(achievement.Image);
+            C<TextBlock>("ToastTitle").Text="新番茄入库 · "+achievement.Name;
+            C<TextBlock>("ToastDescription").Text=achievement.Quip;
+            C<Border>("AchievementToast").Visibility=Visibility.Visible; toastUntil=now+6;
+            if(!store.Data.Settings.Muted) TomatoArt.Play(achievement.Id=="rotten");
+            tray.ShowBalloonTip(4000,"成就解锁 · "+achievement.Name,achievement.Quip,Forms.ToolTipIcon.Info);
+        }
         void Achievements() {
-            var rows=C<StackPanel>("AchievementRows"); rows.Children.Clear();
-            foreach(var a in Logic.Achievements(store.Data)) {
-                var panel=new StackPanel(); panel.Children.Add(Text((a.Unlocked ? "★  " : "☆  ")+a.Name,19)); panel.Children.Add(Text(a.Description+"  ·  "+(a.Unlocked ? "已达成" : Math.Min(a.Value,a.Target).ToString("0.#")+" / "+a.Target),13));
-                panel.Children.Add(new ProgressBar { Value=Math.Min(100,a.Value/a.Target*100),Height=5,Foreground=new SolidColorBrush(Color.FromRgb(100,141,104)) }); rows.Children.Add(Card(panel));
+            var rows=C<WrapPanel>("AchievementRows"); rows.Children.Clear();
+            var achievements=Logic.Achievements(store.Data);
+            C<TextBlock>("CollectionCount").Text=achievements.Count(x=>x.Unlocked)+" / 12  已收集";
+            foreach(var a in achievements) {
+                var panel=new StackPanel();
+                panel.Children.Add(new Image { Source=TomatoArt.Badge(a.Image),Height=145,Stretch=Stretch.Uniform,Opacity=a.Unlocked?1:0.55,Margin=new Thickness(0,0,0,10) });
+                var title=Text(a.Name,18); title.FontWeight=FontWeights.Bold; panel.Children.Add(title);
+                var quip=Text(a.Quip,12); quip.Height=38; quip.Foreground=new SolidColorBrush(Color.FromRgb(138,104,80)); panel.Children.Add(quip);
+                var condition=Text(a.Description,12); condition.Height=36; panel.Children.Add(condition);
+                string progress=a.Unlocked ? "已入库 ✓" : Math.Min(a.Value,a.Target).ToString("0.#")+" / "+a.Target+" "+a.Unit;
+                if(!a.Unlocked && (a.Id=="silicon" || a.Id=="office") && !store.Data.Settings.TrackApps) progress+=" · 需开启应用统计";
+                panel.Children.Add(Text(progress,11));
+                panel.Children.Add(new ProgressBar { Value=a.Unlocked?100:Math.Min(100,a.Value/a.Target*100),Height=5,BorderThickness=new Thickness(0),Background=new SolidColorBrush(Color.FromRgb(238,226,210)),Foreground=new SolidColorBrush(a.Id=="rotten"?Color.FromRgb(132,117,74):Color.FromRgb(220,78,54)) });
+                rows.Children.Add(new Border { Child=panel,Width=220,Padding=new Thickness(16),Margin=new Thickness(0,0,12,12),CornerRadius=new CornerRadius(18),Background=new SolidColorBrush(Color.FromRgb(255,248,237)),BorderThickness=new Thickness(1),BorderBrush=new SolidColorBrush(a.Unlocked?Color.FromRgb(222,170,111):Color.FromRgb(233,221,204)) });
             }
         }
         void LoadSettings() {
             updating=true; var s=store.Data.Settings;
             C<CheckBox>("TrackApps").IsChecked=s.TrackApps; C<CheckBox>("TrackSites").IsChecked=s.TrackSites; C<CheckBox>("TrackSites").IsEnabled=s.TrackApps;
-            C<CheckBox>("Startup").IsChecked=s.Startup; C<TextBox>("IdleLimit").Text=s.IdleSeconds.ToString(); updating=false; AllowedRows();
+            C<CheckBox>("MuteSounds").IsChecked=s.Muted; C<CheckBox>("Startup").IsChecked=s.Startup; C<TextBox>("IdleLimit").Text=s.IdleSeconds.ToString(); updating=false; AllowedRows();
         }
         void SaveSettings() {
             if(Active || updating) return;
             int idle; if(!Int32.TryParse(C<TextBox>("IdleLimit").Text,out idle) || idle<30 || idle>3600) throw new InvalidOperationException("空闲阈值应为 30–3600 秒。");
             bool apps=C<CheckBox>("TrackApps").IsChecked==true, sites=apps && C<CheckBox>("TrackSites").IsChecked==true, startup=C<CheckBox>("Startup").IsChecked==true;
             Program.SetStartup(startup);
-            var s=store.Data.Settings; s.TrackApps=apps; s.TrackSites=sites; s.Startup=startup; s.IdleSeconds=idle;
+            var s=store.Data.Settings; s.TrackApps=apps; s.TrackSites=sites; s.Startup=startup; s.IdleSeconds=idle; s.Muted=C<CheckBox>("MuteSounds").IsChecked==true; if(s.Muted) TomatoArt.Stop();
             consentGeneration++; site=""; store.Save(); Status("偏好已保存 · "+(apps ? "应用统计已开启" : "使用统计已关闭")+(sites ? " · 域名统计已开启" : ""));
         }
         void AllowedRows() {
@@ -247,9 +308,14 @@ namespace TomatoLock {
             var app=store.Data.Settings.Apps.FirstOrDefault(x=>x.Name.StartsWith(prefix));
             if(app==null) throw new InvalidOperationException("请先在偏好设置中识别或选择 "+prefix+" 的安装路径。");
             if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException("应用已更新，请在专注结束后重新确认路径。");
-            Process.Start(new ProcessStartInfo(app.Path) { UseShellExecute=true });
+            AppLauncher.Launch(app);
         }
-        void OpenDirectory(string path) { Directory.CreateDirectory(path); Process.Start(new ProcessStartInfo("explorer.exe","\""+path+"\"") { UseShellExecute=true }); if(Active) Folders(); }
+        void OpenDirectory(string path) {
+            Directory.CreateDirectory(path);
+            if(Active) { pendingDirectory=Path.GetFullPath(path); directoryUntil=Native.AwakeSeconds()+8; Status("正在打开并确认本地文件夹…"); }
+            Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe"),"\""+path+"\"") { UseShellExecute=true });
+            if(Active) Folders();
+        }
         void OpenFile() {
             var d=new OpenFileDialog { Title="阅读本地文件",Filter="支持的文件|*.txt;*.md;*.csv;*.json;*.log;*.cs;*.cpp;*.h;*.py;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx|所有文件|*.*" };
             if(d.ShowDialog(window)!=true)return;
@@ -285,7 +351,7 @@ namespace TomatoLock {
             MessageBox.Show(window,"已解除限制以避免锁死。\n"+error.Message,"TomatoLock",MessageBoxButton.OK,MessageBoxImage.Warning);
         }
         public void Dispose() {
-            if(disposed)return; disposed=true; timer.Stop(); if(gate!=null)gate.Dispose();
+            if(disposed)return; disposed=true; TomatoArt.Stop(); timer.Stop(); if(gate!=null)gate.Dispose();
             SystemEvents.SessionSwitch-=SessionSwitch; tray.Visible=false; tray.Dispose();
             try { if(store.Healthy) { store.Save(); Reports.Generate(store,DateTime.Now.ToString("yyyy-MM-dd")); } } catch {}
         }

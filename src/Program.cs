@@ -10,17 +10,21 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("TomatoLock")]
 [assembly: AssemblyProduct("TomatoLock")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace TomatoLock {
     public static class Program {
         static string customDataRoot;
         public static string DataRoot { get { return customDataRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TomatoLock"); } }
         public static string Exe { get { return Assembly.GetExecutingAssembly().Location; } }
+        public static void WriteProbeOutput(string value) {
+            byte[] bytes=System.Text.Encoding.UTF8.GetBytes(value ?? "");
+            using(var output=Console.OpenStandardOutput()) { output.Write(bytes,0,bytes.Length); output.Flush(); }
+        }
         [STAThread] public static int Main(string[] args) {
-            if(args.Length>=2 && args[0]=="--probe") { try { Console.OutputEncoding=System.Text.Encoding.UTF8; Console.Write(SiteProbe.Read(new IntPtr(Int64.Parse(args[1])))); return 0; } catch { return 1; } }
-            if(args.Length==1 && args[0]=="--folders") { try { Console.OutputEncoding=System.Text.Encoding.UTF8; Console.Write(SiteProbe.LocalFolders()); return 0; } catch { return 1; } }
+            if(args.Length>=2 && args[0]=="--probe") { try { WriteProbeOutput(SiteProbe.Read(new IntPtr(Int64.Parse(args[1])))); return 0; } catch(Exception e) { WriteProbeOutput(""); return 1; } }
+            if(args.Length>=1 && args[0]=="--folders") { try { WriteProbeOutput(SiteProbe.LocalFolders(args.Length>1?System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(args[1])):null)); return 0; } catch { WriteProbeOutput(""); return 1; } }
             if(args.Length==2 && args[0]=="--data-dir") customDataRoot=Path.GetFullPath(args[1]);
             bool created;
             string identity;

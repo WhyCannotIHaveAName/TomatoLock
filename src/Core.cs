@@ -7,6 +7,14 @@ using System.Text;
 using System.Web.Script.Serialization;
 
 namespace TomatoLock {
+    // A brief focus handoff is not permission to use an unverified Explorer window.
+    public sealed class FolderHandoff {
+        public IntPtr Window { get; private set; }
+        double deadline;
+        public void Observe(IntPtr window,double now) { if(window!=Window) { Window=window; deadline=now+4; } }
+        public bool Waiting(IntPtr window,double now) { return window!=IntPtr.Zero && window==Window && now<deadline; }
+        public void Reset() { Window=IntPtr.Zero; deadline=0; }
+    }
     public sealed class UnlockChord {
         readonly HashSet<int> keys=new HashSet<int>();
         public void Update(int key,bool down) { if(down)keys.Add(key); else keys.Remove(key); }
@@ -17,6 +25,7 @@ namespace TomatoLock {
         public bool TrackApps { get; set; }
         public bool TrackSites { get; set; }
         public bool Startup { get; set; }
+        public bool Muted { get; set; }
         public int IdleSeconds { get; set; }
         public List<AllowedApp> Apps { get; set; }
         public Settings() { IdleSeconds = 180; Apps = new List<AllowedApp>(); }
@@ -46,7 +55,8 @@ namespace TomatoLock {
         public List<Session> Sessions { get; set; }
         public List<Usage> Usage { get; set; }
         public Session Active { get; set; }
-        public State() { Schema = 1; Settings = new Settings(); Sessions = new List<Session>(); Usage = new List<Usage>(); }
+        public List<string> Awards { get; set; }
+        public State() { Awards = new List<string>(); Schema = 1; Settings = new Settings(); Sessions = new List<Session>(); Usage = new List<Usage>(); }
     }
     public class Store {
         public readonly string Root;
@@ -59,6 +69,7 @@ namespace TomatoLock {
             State value = Serializer().Deserialize<State>(File.ReadAllText(path, Encoding.UTF8));
             if (value == null || value.Schema != 1 || value.Settings == null || value.Settings.Apps == null || value.Sessions == null || value.Usage == null)
                 throw new InvalidDataException("数据格式不受支持");
+            if(value.Awards==null) value.Awards=new List<string>();
             return value;
         }
         void Load() {
@@ -146,25 +157,45 @@ namespace TomatoLock {
         public static List<Achievement> Achievements(State state) {
             var done = state.Sessions.Where(x => x.Status == "completed").ToList();
             double total = done.Sum(x => x.ElapsedSeconds);
-            return new List<Achievement> {
-                new Achievement("第一颗番茄", "完整完成一次专注", done.Count, 1),
-                new Achievement("轻轻起步", "完成一次至少 10 分钟的专注", done.Count(x=>x.TargetSeconds >= 600), 1),
-                new Achievement("沉浸课堂", "完成一次至少 45 分钟的专注", done.Count(x=>x.TargetSeconds >= 2700), 1),
-                new Achievement("百分钟远航", "完成一次至少 100 分钟的专注", done.Count(x=>x.TargetSeconds >= 6000), 1),
-                new Achievement("积少成多", "累计完成 10 次专注", done.Count, 10),
-                new Achievement("时间收藏家", "累计完成 10 小时", total / 3600, 10),
-                new Achievement("稳步前行", "连续 3 个自然日完成专注", LongestStreak(done), 3),
-                new Achievement("一周的约定", "连续 7 个自然日完成专注", LongestStreak(done), 7),
-                new Achievement("小小里程碑", "累计完成 50 小时", total / 3600, 50)
+            double chat=state.Usage.Where(x=>x.Kind=="app" && String.Equals(x.Name,"ChatGPT.exe",StringComparison.OrdinalIgnoreCase)).Sum(x=>x.Seconds)/3600;
+            double wps=state.Usage.Where(x=>x.Kind=="app" && new [] {"wps.exe","et.exe","wpp.exe","wpspdf.exe"}.Contains((x.Name??"").ToLowerInvariant())).Sum(x=>x.Seconds)/3600;
+            var result=new List<Achievement> {
+                new Achievement("first",0,"第一颗番茄","完整完成一次专注","恭喜，你已经不是一颗生番茄了。",done.Count,1,"次"),
+                new Achievement("sprout",1,"小番茄出土","完成一次至少 10 分钟的专注","今天先长两片叶子。",done.Count(x=>x.TargetSeconds>=600),1,"次"),
+                new Achievement("scholar",2,"知识番子","完成一次至少 45 分钟的专注","知识进脑，番茄熟了。",done.Count(x=>x.TargetSeconds>=2700),1,"次"),
+                new Achievement("rocket",3,"百分钟远航","完成一次至少 100 分钟的专注","地球太吵，本番先飞一步。",done.Count(x=>x.TargetSeconds>=6000),1,"次"),
+                new Achievement("basket",4,"番茄批发商","累计完成 10 次专注","散装的努力，现在可以整箱发货。",done.Count,10,"次"),
+                new Achievement("wizard",5,"时间煮术师","累计完成 10 小时专注","再熬一会儿，就能变成番茄浓汤。",total/3600,10,"小时"),
+                new Achievement("trio",6,"番茄三连","连续 3 个自然日完成专注","昨天的你给今天点了个赞。",LongestStreak(done),3,"天"),
+                new Achievement("week",7,"七日熟成","连续 7 个自然日完成专注","一周的阳光，都收进肚子里。",LongestStreak(done),7,"天"),
+                new Achievement("king",8,"番茄大帝","累计完成 50 小时专注","朕打下的江山，全是待办清单。",total/3600,50,"小时"),
+                new Achievement("silicon",9,"硅基生物","累计活跃使用 ChatGPT 10 小时","碳基外壳，硅基代餐。",chat,10,"小时"),
+                new Achievement("rotten",10,"烂番茄","累计主动提前解锁 3 次","熟过头了？下次再种一颗。",state.Sessions.Count(x=>x.Status=="unlocked"),3,"次"),
+                new Achievement("office",11,"表格炼金术士","累计活跃使用 WPS 5 小时","把单元格里的日子，炼成金子。",wps,5,"小时")
             };
+            foreach(var item in result) item.Earned=state.Awards!=null && state.Awards.Contains(item.Id);
+            return result;
         }
+        public static List<Achievement> CaptureAwards(State state) {
+            if(state.Awards==null) state.Awards=new List<string>();
+            var fresh=Achievements(state).Where(x=>x.Value>=x.Target && !state.Awards.Contains(x.Id)).ToList();
+            foreach(var item in fresh) state.Awards.Add(item.Id);
+            return fresh;
+        }
+
         public static string StatusName(string status) { return status == "completed" ? "已完成" : status == "unlocked" ? "四键解锁" : "意外中断"; }
     }
     public class Achievement {
-        public string Name, Description; public double Value, Target;
-        public bool Unlocked { get { return Value >= Target; } }
-        public Achievement(string name, string description, double value, double target) { Name = name; Description = description; Value = value; Target = target; }
+        public string Id, Name, Description, Quip, Unit;
+        public int Image;
+        public double Value, Target;
+        public bool Earned;
+        public bool Unlocked { get { return Earned || Value>=Target; } }
+        public Achievement(string id,int image,string name,string description,string quip,double value,double target,string unit) {
+            Id=id; Image=image; Name=name; Description=description; Quip=quip; Value=value; Target=target; Unit=unit;
+        }
     }
+
     public static class Reports {
         static string Cell(string text) { return text.Replace("|", "\\|").Replace("\r", " ").Replace("\n", " "); }
         static string Csv(string value) { return "\"" + value.Replace("\"", "\"\"") + "\""; }
