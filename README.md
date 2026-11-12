@@ -28,7 +28,7 @@
 
 先从托盘退出旧版，再运行新版安装器。原有 `%LocalAppData%\TomatoLock` 记录、统计与设置继续使用，无需搬迁；不自动开启任何统计。
 
-![番茄图鉴](docs/achievements.png)
+![番茄图鉴](assets/tomato-badges.png)
 
 ## 第一次使用
 
