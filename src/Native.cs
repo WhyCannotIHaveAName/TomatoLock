@@ -138,7 +138,7 @@ namespace TomatoLock {
     }
     public static class SiteProbe {
         public static string LocalFolders(string requested=null) {
-            object shell=null, windows=null; var handles=new List<string>(); string matching=""; string matching="";
+            object shell=null, windows=null; var handles=new List<string>(); string matching="";
             try {
                 shell=Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
                 windows=shell.GetType().InvokeMember("Windows",System.Reflection.BindingFlags.InvokeMethod,null,shell,null);

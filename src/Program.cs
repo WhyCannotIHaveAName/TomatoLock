@@ -23,7 +23,7 @@ namespace TomatoLock {
             using(var output=Console.OpenStandardOutput()) { output.Write(bytes,0,bytes.Length); output.Flush(); }
         }
         [STAThread] public static int Main(string[] args) {
-            if(args.Length>=2 && args[0]=="--probe") { try { WriteProbeOutput(SiteProbe.Read(new IntPtr(Int64.Parse(args[1])))); return 0; } catch(Exception e) { WriteProbeOutput(""); return 1; } }
+            if(args.Length>=2 && args[0]=="--probe") { try { WriteProbeOutput(SiteProbe.Read(new IntPtr(Int64.Parse(args[1])))); return 0; } catch { WriteProbeOutput(""); return 1; } }
             if(args.Length>=1 && args[0]=="--folders") { try { WriteProbeOutput(SiteProbe.LocalFolders(args.Length>1?System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(args[1])):null)); return 0; } catch { WriteProbeOutput(""); return 1; } }
             if(args.Length==2 && args[0]=="--data-dir") customDataRoot=Path.GetFullPath(args[1]);
             bool created;
