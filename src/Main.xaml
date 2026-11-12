@@ -11,7 +11,7 @@
   <Grid Background="#FFF8ED">
     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <Border Background="#294A37"><DockPanel Margin="22,30,14,24">
-      <StackPanel DockPanel.Dock="Top"><TextBlock Text="● TomatoLock" FontSize="21" FontWeight="Bold" Foreground="#F7F4E8"/><TextBlock Text="留一点时间，给自己。" Foreground="#B8CCC0" FontSize="12" Margin="2,10,0,38"/>
+      <StackPanel DockPanel.Dock="Top"><Border Background="#FFF8ED" CornerRadius="22" Width="84" Height="84" HorizontalAlignment="Left" Margin="0,0,0,18"><Image x:Name="BrandTomato" Margin="6"/></Border><TextBlock Text="TomatoLock" FontSize="23" FontWeight="Bold" Foreground="#FFF5E4"/><TextBlock Text="一颗番茄，一点生长。" Foreground="#B8CCC0" FontSize="12" Margin="2,10,0,38"/>
         <Button x:Name="NavFocus" Content="◷   专注计时" Background="#DCE9CD" HorizontalContentAlignment="Left"/>
         <Button x:Name="NavHistory" Content="▤   时长与日报" Background="#365D43" Foreground="White" BorderThickness="0"/>
         <Button x:Name="NavAchievements" Content="☆   成就收藏" Background="#365D43" Foreground="White" BorderThickness="0"/>
