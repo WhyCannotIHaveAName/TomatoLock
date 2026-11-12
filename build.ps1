@@ -30,7 +30,7 @@ Copy-Item -LiteralPath src\TomatoLock.exe.config -Destination build\TomatoLock.e
 & $compiler /nologo /optimize+ /platform:x64 /codepage:65001 /target:winexe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:build\TomatoLock-Setup-1.1.0.exe /win32manifest:src\app.manifest /win32icon:build\TomatoLock.ico /resource:build\TomatoLock.exe,TomatoLock.exe /resource:src\TomatoLock.exe.config,TomatoLock.exe.config src\Setup.cs
 if ($LASTEXITCODE -ne 0) { throw 'Setup compilation failed' }
 if ($Test) {
-    & $compiler @argsCommon /target:exe /out:build\TomatoLock.Tests.exe src\Core.cs src\Native.cs tests\Tests.cs
+    & $compiler @argsCommon /target:exe /out:build\TomatoLock.Tests.exe src\Core.cs src\Native.cs src\AppLauncher.cs tests\Tests.cs
     if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
     & .\build\TomatoLock.Tests.exe
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
