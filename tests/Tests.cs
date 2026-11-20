@@ -1,8 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
 using TomatoLock;
 public static class Tests {
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetShortPathName(string path,StringBuilder result,uint length);
     static int count;
     static void Assert(bool condition,string name) { if(!condition) throw new Exception("FAIL: "+name); count++; Console.WriteLine("PASS: "+name); }
     public static int Main() {
@@ -39,11 +43,70 @@ public static class Tests {
             string bad=Path.Combine(root,"bad"); Directory.CreateDirectory(bad); File.WriteAllText(Path.Combine(bad,"state.json"),"bad"); var blocked=new Store(bad);
             Assert(!blocked.Healthy,"unrecoverable data refuses a fresh session");
             bool refused=false; try { AppPolicy.Qualify("notepad.exe"); } catch { refused=true; } Assert(refused,"arbitrary executable not allowlisted");
+            bool refusedBackup=false; try { AppPolicy.Qualify("wps.exe_bk"); } catch(InvalidOperationException) { refusedBackup=true; }
+            Assert(refusedBackup,"WPS updater backup is not an executable candidate");
+            string oldChat=Path.Combine(root,"old application","ChatGPT.exe"), newChat=Path.Combine(root,"new application","ChatGPT.exe"), wps=Path.Combine(root,"office","wps.exe");
+            foreach(string p in new [] {oldChat,newChat,wps}) { Directory.CreateDirectory(Path.GetDirectoryName(p)); File.WriteAllText(p,p); }
+            var approved=new List<AllowedApp>();
+            AppPolicy.RegisterApproved(approved,new [] {oldChat,wps});
+            AppPolicy.RegisterApproved(approved,new [] {newChat});
+            Assert(approved.Count==2 && AppPolicy.SelectApproved(approved,"ChatGPT").Path==Native.CanonicalPath(newChat),"rediscovery replaces the earlier ChatGPT version rather than appending it");
+            Assert(approved.Any(a=>a.Name=="WPS · wps"),"confirming ChatGPT preserves other approved modules");
+            approved.Insert(0,new AllowedApp {Name="ChatGPT",Path=Path.Combine(root,"removed package","ChatGPT.exe"),Sha256="old"});
+            Assert(AppPolicy.SelectApproved(approved,"ChatGPT").Path==Native.CanonicalPath(newChat),"missing old ChatGPT cannot mask the confirmed current version");
+            string backupWps=Path.Combine(root,"office","wps.exe_bk"); File.WriteAllText(backupWps,"backup");
+            approved.Add(new AllowedApp {Name="WPS · wps",Path=backupWps,Sha256="backup"});
+            approved.Add(new AllowedApp {Name="ChatGPT",Path=newChat,Sha256=Native.Hash(newChat)});
+            Assert(AppPolicy.PruneApproved(approved)==3 && approved.Count==2,"startup cleanup removes missing paths backups and duplicate entries");
+            var policy=new AppPolicy(); policy.Configure(approved);
+            Assert(policy.AllowsPath(Native.CanonicalPath(newChat)),"cleaned approved app remains allowed for focus");
+            var shortPath=new StringBuilder(32768); uint shortLength=GetShortPathName(wps,shortPath,(uint)shortPath.Capacity);
+            Assert(shortLength>0 && Native.CanonicalPath(shortPath.ToString())==Native.CanonicalPath(wps),"short and long Windows file paths share one canonical identity");
+            approved.Add(new AllowedApp {Name="WPS · wps",Path=shortPath.ToString(),Sha256=Native.Hash(wps)});
+            AppPolicy.PruneApproved(approved);
+            Assert(approved.Count(a=>a.Name=="WPS · wps")==1,"short path alias does not duplicate the WPS installation");
+            string confirmedFingerprint=AppPolicy.SelectApproved(approved,"ChatGPT").Sha256;
+            File.WriteAllText(newChat,"updated without confirmation"); AppPolicy.PruneApproved(approved);
+            Assert(AppPolicy.SelectApproved(approved,"ChatGPT").Sha256==confirmedFingerprint,"cleanup never approves a changed executable fingerprint");
+            bool refusedUpdated=false; try { policy.Configure(approved); } catch(InvalidOperationException) {refusedUpdated=true;}
+            Assert(refusedUpdated,"updated executable still requires explicit reconfirmation");
+            bool registrationFailed=false; try { AppPolicy.RegisterApproved(approved,new [] {wps,Path.Combine(root,"not installed","ChatGPT.exe")}); } catch(IOException) {registrationFailed=true;}
+            Assert(registrationFailed && approved.Count==2 && AppPolicy.SelectApproved(approved,"ChatGPT").Sha256==confirmedFingerprint,"failed rediscovery leaves existing approvals unchanged");
             var chord=new UnlockChord(); chord.Update(27,true); chord.Update(162,true); chord.Update(160,true);
             Assert(!chord.Complete,"three keys cannot unlock"); chord.Update(46,true); Assert(chord.Complete,"exact four-key chord detected");
             chord.Update(27,false); Assert(!chord.Complete,"releasing a required key cancels chord");
             chord.Reset(); foreach(int key in new [] {46,161,163,27})chord.Update(key,true); Assert(chord.Complete,"right-side modifiers and different key order accepted");
             chord.Reset(); Assert(!chord.Complete,"lock-screen reset clears stale keys");
+            var ordinary=new UnlockChord(); ordinary.Update(27,true,0);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,true,true),"standalone Escape works in allowed applications");
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,true,false),"Escape can cancel an unrecognized capture overlay");
+            ordinary.Reset();
+            bool standalone=true;
+            foreach(int key in new [] {162,160,46}) { ordinary.Update(key,true,1); standalone &= !FocusInput.SuppressKeyboard(ordinary,key,true,true); ordinary.Update(key,false,1.1); }
+            Assert(standalone,"Control Shift and Delete retain their normal individual functions");
+            ordinary.Update(162,true,2); ordinary.Update(160,true,2); ordinary.Update(27,true,2);
+            Assert(FocusInput.SuppressKeyboard(ordinary,27,true,true),"Ctrl Shift Escape stays reserved without blocking Escape alone");
+            ordinary.Update(46,true,2.1);
+            Assert(FocusInput.SuppressKeyboard(ordinary,46,true,true) && ordinary.HeldFor(3.1,1),"complete four-key chord is intercepted and still unlocks after one second");
+            ordinary.Update(162,false,3.2);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,162,false,false),"modifier release is delivered even when the foreground changes");
+            Assert(FocusInput.SuppressKeyboard(ordinary,65,true,false) && !FocusInput.SuppressKeyboard(ordinary,65,true,true),"ordinary typing remains limited to allowed windows");
+            ordinary.Update(27,false,3.3);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,false,false),"Escape release cannot leave the screenshot tool with a stuck key");
+            var captureApps=new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"D:\Weixin\Weixin.exe" };
+            Assert(FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::ScreenshotView",captureApps),"known WeChat screenshot window is permitted");
+            Assert(!FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::MainWindow",captureApps),"screenshot exception does not permit the WeChat chat window");
+            Assert(!FocusInput.CaptureRoot(@"C:\Other\Weixin.exe","mmui::ScreenshotView",captureApps),"matching capture class from another executable is rejected");
+            Assert(!FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::ScreenshotViewOther",captureApps),"capture class name must match exactly");
+            foreach(int key in new [] {27,46,162,160}) chord.Update(key,true,10);
+            Assert(!chord.HeldFor(10.999,1) && chord.HeldFor(11,1),"unlock requires a full second from the last required key");
+            chord.Update(160,false,10.95); chord.Update(160,true,10.99);
+            Assert(!chord.HeldFor(11,1) && chord.HeldFor(11.99,1),"brief modifier release between timer ticks restarts the hold");
+            chord.Update(27,true,11.5);
+            Assert(chord.HeldFor(11.99,1),"key repeat does not restart a continuous hold");
+            chord.Reset(); Assert(!chord.HeldFor(99,1),"session reset clears the hold deadline");
+            chord.Update(27,true,20); chord.Update(46,true,20); chord.Update(163,true,20); chord.Update(161,true,20.5);
+            Assert(!chord.HeldFor(21,1) && chord.HeldFor(21.5,1),"right modifiers measure overlap rather than first key time");
             var handoff=new FolderHandoff(); var folder=new IntPtr(17);
             handoff.Observe(folder,10); Assert(handoff.Waiting(folder,13.9),"new Explorer retains focus while verification runs");
             handoff.Observe(folder,13.9); Assert(!handoff.Waiting(folder,14),"repeated input cannot extend unverified folder grace");

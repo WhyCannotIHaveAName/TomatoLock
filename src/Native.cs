@@ -17,6 +17,9 @@ namespace TomatoLock {
         [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
+        [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint command);
+        [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window,out WindowRect bounds);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LastInput info);
@@ -25,11 +28,13 @@ namespace TomatoLock {
         [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref int size);
         [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
         [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern IntPtr GetModuleHandle(string module);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern uint GetFinalPathNameByHandle(IntPtr file, StringBuilder path, uint length, uint flags);
         public delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
         [DllImport("user32.dll", SetLastError=true)] static extern IntPtr SetWindowsHookEx(int type, HookProc proc, IntPtr module, uint thread);
         [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
         [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
         [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+        [StructLayout(LayoutKind.Sequential)] public struct WindowRect { public int Left,Top,Right,Bottom; }
         [StructLayout(LayoutKind.Sequential)] public struct LastInput { public uint Size, Time; }
         [StructLayout(LayoutKind.Sequential)] struct Keyboard { public uint Key, Scan, Flags, Time; public IntPtr Extra; }
         [StructLayout(LayoutKind.Sequential)] struct Mouse { public Point Point; public uint Data, Flags, Time; public IntPtr Extra; }
@@ -44,6 +49,20 @@ namespace TomatoLock {
         public static string ClassName(IntPtr window) { StringBuilder b=new StringBuilder(256); GetClassName(window,b,b.Capacity); return b.ToString(); }
         public static bool Browser(string path) { return new [] {"chrome", "msedge", "firefox", "brave", "vivaldi", "opera"}.Contains(Path.GetFileNameWithoutExtension(path).ToLowerInvariant()); }
         public static string Hash(string path) { using(var sha=SHA256.Create()) using(var file=File.OpenRead(path)) return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").ToLowerInvariant(); }
+        public static string CanonicalPath(string path) {
+            string full=Path.GetFullPath(path);
+            try { using(var file=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) {
+                var buffer=new StringBuilder(32768);
+                uint length=GetFinalPathNameByHandle(file.SafeFileHandle.DangerousGetHandle(),buffer,(uint)buffer.Capacity,0);
+                if(length>0 && length<buffer.Capacity) {
+                    string final=buffer.ToString();
+                    if(final.StartsWith(@"\\?\UNC\",StringComparison.OrdinalIgnoreCase)) return @"\\"+final.Substring(8);
+                    if(final.StartsWith(@"\\?\",StringComparison.Ordinal)) return final.Substring(4);
+                    return final;
+                }
+            } } catch(IOException) {} catch(UnauthorizedAccessException) {}
+            return full;
+        }
 
         // Hooks are installed only during a user-started session. Never log keystrokes.
         public sealed class InputGate : IDisposable {
@@ -53,11 +72,12 @@ namespace TomatoLock {
             readonly Func<IntPtr,bool> allowed;
             readonly Action wake;
             public bool Chord { get { return keys.Complete; } }
+            public bool HeldFor(double now,double seconds) { return keys.HeldFor(now,seconds); }
             public void Reset() { keys.Reset(); }
             public InputGate(Func<IntPtr,bool> allowed, Action wake) {
                 this.allowed=allowed; this.wake=wake; keyboardProc=KeyboardEvent; mouseProc=MouseEvent;
                 // Include modifiers already held before the hook is installed.
-                foreach(int key in new [] {27,46,162,163,160,161}) if((GetAsyncKeyState(key)&0x8000)!=0) keys.Update(key,true);
+                foreach(int key in new [] {27,46,162,163,160,161}) if((GetAsyncKeyState(key)&0x8000)!=0) keys.Update(key,true,AwakeSeconds());
                 keyboardHook=SetWindowsHookEx(13,keyboardProc,GetModuleHandle(null),0);
                 mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                 if(keyboardHook==IntPtr.Zero || mouseHook==IntPtr.Zero) { Dispose(); throw new InvalidOperationException("无法安装专注输入拦截；本次专注没有启动。"); }
@@ -66,10 +86,12 @@ namespace TomatoLock {
                 if(code>=0) {
                     var k=(Keyboard)Marshal.PtrToStructure(data,typeof(Keyboard)); int key=(int)k.Key;
                     bool down=message.ToInt32()==0x100 || message.ToInt32()==0x104;
-                    keys.Update(key,down);
-                    // Reserve Esc during focus: prevents Ctrl+Shift+Esc launching Task Manager before the chord is complete.
-                    if(key==27 || Chord) return new IntPtr(1);
-                    if(!allowed(GetForegroundWindow())) { wake(); return new IntPtr(1); }
+                    keys.Update(key,down,AwakeSeconds());
+                    bool targetAllowed=!down || key==27 || Chord || allowed(GetForegroundWindow());
+                    if(FocusInput.SuppressKeyboard(keys,key,down,targetAllowed)) {
+                        if(!targetAllowed) wake();
+                        return new IntPtr(1);
+                    }
                 }
                 return CallNextHookEx(keyboardHook,code,message,data);
             }
@@ -88,15 +110,20 @@ namespace TomatoLock {
         readonly HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<IntPtr, bool> cache = new Dictionary<IntPtr, bool>();
         readonly HashSet<IntPtr> localFolders = new HashSet<IntPtr>();
+        readonly HashSet<string> captureApps=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         double foldersAt = -100;
         readonly string self = Process.GetCurrentProcess().MainModule.FileName;
         readonly string explorer=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe");
         public void Configure(IEnumerable<AllowedApp> apps) {
             paths.Clear(); cache.Clear(); paths.Add(self);
+            captureApps.Clear();
+            foreach(string name in new [] {"Weixin","WeChat"}) foreach(var process in Process.GetProcessesByName(name)) using(process) {
+                try { string path=Native.CanonicalPath(process.MainModule.FileName); if(File.Exists(path)) captureApps.Add(path); } catch {}
+            }
             foreach(var app in apps) {
                 if(!File.Exists(app.Path)) throw new InvalidOperationException(app.Name+" 已移动或卸载，请重新选择。");
                 if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException(app.Name+" 已更新，请在设置中重新确认可执行文件。");
-                paths.Add(app.Path);
+                paths.Add(Native.CanonicalPath(app.Path));
             }
         }
         public void Refresh() { cache.Clear(); }
@@ -106,6 +133,7 @@ namespace TomatoLock {
             bool result; if(cache.TryGetValue(window,out result)) return result;
             string path=Native.ProcessPath(window);
             result=paths.Contains(path);
+            if(!result) result=CaptureAllowed(window);
             if(String.Equals(path,explorer,StringComparison.OrdinalIgnoreCase)) {
                 // Explorer shell and file windows are navigation surfaces. Executables they launch are separately checked.
                 string cls=Native.ClassName(window);
@@ -113,27 +141,68 @@ namespace TomatoLock {
             }
             cache[window]=result; return result;
         }
+        bool CaptureAllowed(IntPtr window) {
+            IntPtr candidate=Native.GetAncestor(window,2);
+            for(int depth=0;candidate!=IntPtr.Zero && depth<8;depth++) {
+                string path=Native.ProcessPath(candidate);
+                if(!captureApps.Contains(path)) return false;
+                if(FocusInput.CaptureRoot(path,Native.ClassName(candidate),captureApps)) return true;
+                candidate=Native.GetWindow(candidate,4); // GW_OWNER: screenshot-owned toolbar / dialog only.
+            }
+            return false;
+        }
         public bool AllowsPath(string path) { return paths.Contains(path); }
         public bool IsFolderWindow(IntPtr window) {
             string cls=Native.ClassName(window);
             return (cls=="CabinetWClass" || cls=="ExploreWClass") && String.Equals(Native.ProcessPath(window),explorer,StringComparison.OrdinalIgnoreCase);
         }
         public static string Qualify(string path) {
+            if(!String.Equals(Path.GetExtension(path),".exe",StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("请选择实际的 .exe 应用程序，不能使用备份文件。");
             string name=Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
             if(name=="chatgpt") return "ChatGPT";
             if(new [] {"wps","et","wpp","wpspdf"}.Contains(name)) return "WPS · " + name;
             throw new InvalidOperationException("仅可添加 ChatGPT.exe、wps.exe、et.exe、wpp.exe 或 wpspdf.exe。其他本地文件请用内置阅读器或 WPS 打开。");
         }
+        public static int PruneApproved(List<AllowedApp> apps) {
+            int changes=0; var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for(int i=apps.Count-1;i>=0;i--) {
+                var app=apps[i]; string path, name;
+                try { path=Native.CanonicalPath(app.Path); name=Qualify(path); if(!File.Exists(path)) throw new FileNotFoundException(); }
+                catch { apps.RemoveAt(i); changes++; continue; }
+                if(!seen.Add(path)) { apps.RemoveAt(i); changes++; continue; }
+                if(app.Path!=path || app.Name!=name) { app.Path=path; app.Name=name; changes++; }
+            }
+            return changes;
+        }
+        public static void RegisterApproved(List<AllowedApp> apps,IEnumerable<string> selected) {
+            // Validate and hash every newly confirmed executable before changing the saved list.
+            var confirmed=selected.Select(p=>{
+                string path=Native.CanonicalPath(p), name=Qualify(path);
+                return new AllowedApp {Name=name,Path=path,Sha256=Native.Hash(path)};
+            }).GroupBy(a=>a.Name,StringComparer.OrdinalIgnoreCase).Select(g=>g.Last()).ToList();
+            var replaced=new HashSet<string>(confirmed.Select(a=>a.Name),StringComparer.OrdinalIgnoreCase);
+            var updated=apps.Where(a=>a!=null && !replaced.Contains(a.Name)).ToList();
+            updated.AddRange(confirmed); PruneApproved(updated);
+            apps.Clear(); apps.AddRange(updated);
+        }
+        public static AllowedApp SelectApproved(IEnumerable<AllowedApp> apps,string prefix) {
+            var matches=apps.Where(a=>a!=null && a.Name!=null && a.Name.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)).ToList();
+            if(matches.Count==0) throw new InvalidOperationException("请先在偏好设置中识别或选择 "+prefix+" 的安装路径。");
+            var app=matches.LastOrDefault(a=>File.Exists(a.Path));
+            if(app==null) throw new InvalidOperationException(prefix+" 已更新或移动，请在专注结束后重新识别并确认路径。");
+            return app;
+        }
         public static List<string> Discover() {
             var result=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach(var p in Process.GetProcesses()) { using(p) try { string path=p.MainModule.FileName; Qualify(path); result.Add(path); } catch {} }
+            var running=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach(var p in Process.GetProcesses()) { using(p) try { string path=Native.CanonicalPath(p.MainModule.FileName); Qualify(path); if(File.Exists(path)) { result.Add(path); running.Add(path); } } catch {} }
             foreach(string root in new [] {Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}) {
                 foreach(string suffix in new [] {"Kingsoft\\WPS Office", "Programs\\Kingsoft\\WPS Office", "Programs\\ChatGPT", "ChatGPT"}) {
                     string folder=Path.Combine(root,suffix); if(!Directory.Exists(folder)) continue;
-                    try { foreach(string path in Directory.GetFiles(folder,"*.exe",SearchOption.AllDirectories)) { try { Qualify(path); result.Add(path); } catch {} } } catch {}
+                    try { foreach(string found in Directory.GetFiles(folder,"*.exe",SearchOption.AllDirectories)) { try { string path=Native.CanonicalPath(found); Qualify(path); result.Add(path); } catch {} } } catch {}
                 }
             }
-            return result.OrderBy(x=>x).ToList();
+            return result.GroupBy(Qualify).Select(g=>g.OrderByDescending(p=>running.Contains(p)).ThenByDescending(p=>File.GetLastWriteTimeUtc(p)).ThenBy(p=>p,StringComparer.OrdinalIgnoreCase).First()).OrderBy(p=>p).ToList();
         }
     }
     public static class SiteProbe {

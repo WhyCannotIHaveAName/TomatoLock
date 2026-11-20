@@ -17,9 +17,33 @@ namespace TomatoLock {
     }
     public sealed class UnlockChord {
         readonly HashSet<int> keys=new HashSet<int>();
-        public void Update(int key,bool down) { if(down)keys.Add(key); else keys.Remove(key); }
-        public void Reset() { keys.Clear(); }
+        double completeAt=Double.NaN;
+        public void Update(int key,bool down,double now=0) {
+            bool wasComplete=Complete;
+            if(down)keys.Add(key); else keys.Remove(key);
+            if(!Complete) completeAt=Double.NaN;
+            else if(!wasComplete) completeAt=now;
+        }
+        public bool HeldFor(double now,double seconds) {
+            return Complete && seconds>0 && !Double.IsNaN(completeAt) && now>=completeAt && now-completeAt>=seconds;
+        }
+        public void Reset() { keys.Clear(); completeAt=Double.NaN; }
         public bool Complete { get { return keys.Contains(27) && keys.Contains(46) && (keys.Contains(162)||keys.Contains(163)||keys.Contains(17)) && (keys.Contains(160)||keys.Contains(161)||keys.Contains(16)); } }
+        public bool ControlDown { get { return keys.Contains(162)||keys.Contains(163)||keys.Contains(17); } }
+        public bool ShiftDown { get { return keys.Contains(160)||keys.Contains(161)||keys.Contains(16); } }
+    }
+    public static class FocusInput {
+        public static bool SuppressKeyboard(UnlockChord keys,int key,bool down,bool allowed) {
+            // Releases always reach Windows, including modifiers pressed before focus began.
+            if(!down) return false;
+            if(keys.Complete) return true;
+            // Keep the Task Manager shortcut reserved without taking away ordinary Escape.
+            if(key==27) return keys.ControlDown && keys.ShiftDown;
+            return !allowed;
+        }
+        public static bool CaptureRoot(string path,string windowClass,ISet<string> captureApps) {
+            return captureApps.Contains(path) && windowClass=="mmui::ScreenshotView";
+        }
     }
     public class Settings {
         public bool TrackApps { get; set; }
