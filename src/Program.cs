@@ -10,12 +10,13 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("TomatoLock")]
 [assembly: AssemblyProduct("TomatoLock")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.1.1.0")]
+[assembly: AssemblyFileVersion("1.1.1.0")]
 
 namespace TomatoLock {
     public static class Program {
         static string customDataRoot;
+        public static bool IsolatedData { get { return customDataRoot!=null; } }
         public static string DataRoot { get { return customDataRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TomatoLock"); } }
         public static string Exe { get { return Assembly.GetExecutingAssembly().Location; } }
         public static void WriteProbeOutput(string value) {
@@ -48,6 +49,7 @@ namespace TomatoLock {
             }
         }
         public static void SetStartup(bool enabled) {
+            if(IsolatedData) return;
             using(var key=Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")) {
                 if(enabled) key.SetValue("TomatoLock","\""+Exe+"\" --startup"); else key.DeleteValue("TomatoLock",false);
             }

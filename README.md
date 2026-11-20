@@ -2,9 +2,16 @@
 
 一个离线可用的 Windows 桌面番茄钟：把眼前的事情慢慢做好。
 
-**v1.1.0 · Windows 10 1903+ / Windows 11，x64 · .NET Framework 4.8 · MIT**
+**v1.1.1 候选版 · Windows 10 1903+ / Windows 11，x64 · .NET Framework 4.8 · MIT**
 
-## 下载与安装
+## v1.1.1 · 连续解锁与独立测试
+
+- 四键解锁从最后一个必需按键按下的实际事件开始计算 1 秒；任意必需键短暂松开都会重新计时，即使松开和重新按下发生在两个界面采样之间。按键自动重复不重置连续计时。
+- `--data-dir` 独立实例不会新增、删除或改写正式程序的开机自启设置；此模式下开机自启选项禁用。
+- 补回 GUI 子进程 UTF-8 管道、最小窗口图鉴滚动与成就提示卡回归检查，新增连续按键与独立设置检查。
+- 本分支生成 `TomatoLock-Setup-1.1.1.exe` 与 `TomatoLock-Portable-1.1.1-win-x64.zip`。候选包可从本分支 / PR 的 GitHub Actions 构建产物获取，或使用下方命令自行编译；尚未作为正式版本写入主分支下载目录。
+
+## 已发布 v1.1.0 下载与安装
 
 - **[下载安装版 TomatoLock-Setup-1.1.0.exe](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Setup-1.1.0.exe)**
 - **[下载免安装版 TomatoLock-Portable-1.1.0-win-x64.zip](https://github.com/WhyCannotIHaveAName/TomatoLock/raw/refs/heads/main/releases/TomatoLock-Portable-1.1.0-win-x64.zip)**
@@ -86,7 +93,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 ```
 
-`-Test` 运行数据 / 计时 / 域名脱敏 / 午夜拆分 / 崩溃恢复 / 备份恢复 / 成就 / 四键状态检查，以及四个 WPF 页面的内存渲染检查和安装包载荷检查。`-Package` 生成 `releases/` 下的安装包、免安装 ZIP 和 SHA-256 清单。`build/` 与 `test-output/` 不提交。
+`-Test` 运行数据 / 计时 / 域名脱敏 / 午夜拆分 / 崩溃恢复 / 备份恢复 / 成就 / 四键连续按住检查，以及 GUI 子进程管道、独立设置、四个 WPF 页面、小窗口图鉴与成就提示卡检查和安装包载荷检查。`-Package` 默认生成 `releases/` 下的安装包、免安装 ZIP 和 SHA-256 清单；可加 `-PackageDirectory C:\path\to\packages` 指定独立输出目录，保留原有交付文件。`build/` 与 `test-output/` 不提交。
 
 测试时可使用独立目录：
 
@@ -94,9 +101,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 .\build\TomatoLock.exe --data-dir .\test-output\manual
 ```
 
-这个模式会在目录里写入 `startup-ready.txt` 供启动检查。不要在未结束专注时更换数据目录；多个目录属于彼此独立的实例。
+这个模式会在目录里写入 `startup-ready.txt` 供启动检查，不会更改系统开机自启设置。不要在未结束专注时更换数据目录；多个目录属于彼此独立的实例。运行 `-Test` 后，也可启动 `build/TomatoLock.DesktopHost.exe`：它固定使用工程的 `test-output/desktop` 目录，适合单独做桌面验收。
 
-验证结果和待手动检查的项目见 [TESTING.md](TESTING.md)。本次已验证编译、43 项逻辑检查、4 个页面渲染、自定义时长显示、安装载荷以及实际窗口加载。**未声称在所有 Windows / 浏览器版本上完成实机兼容性测试，也未完成四键持续按住、跨应用限制、安装/卸载、自启和浏览器地址栏的端到端实测。**
+验证结果和待手动检查的项目见 [TESTING.md](TESTING.md)。本次已验证编译、48 项逻辑检查、GUI 管道、独立设置、4 个页面与小窗口布局、自定义时长、安装载荷和独立桌面窗口加载。**真实按钮点击、ChatGPT 冷启动 / 恢复、文件夹焦点、四键持续按住、跨应用限制、安装/卸载、自启和浏览器地址栏仍待端到端实测。**
 
 ## 源码结构
 

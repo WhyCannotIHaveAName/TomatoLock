@@ -53,11 +53,12 @@ namespace TomatoLock {
             readonly Func<IntPtr,bool> allowed;
             readonly Action wake;
             public bool Chord { get { return keys.Complete; } }
+            public bool HeldFor(double now,double seconds) { return keys.HeldFor(now,seconds); }
             public void Reset() { keys.Reset(); }
             public InputGate(Func<IntPtr,bool> allowed, Action wake) {
                 this.allowed=allowed; this.wake=wake; keyboardProc=KeyboardEvent; mouseProc=MouseEvent;
                 // Include modifiers already held before the hook is installed.
-                foreach(int key in new [] {27,46,162,163,160,161}) if((GetAsyncKeyState(key)&0x8000)!=0) keys.Update(key,true);
+                foreach(int key in new [] {27,46,162,163,160,161}) if((GetAsyncKeyState(key)&0x8000)!=0) keys.Update(key,true,AwakeSeconds());
                 keyboardHook=SetWindowsHookEx(13,keyboardProc,GetModuleHandle(null),0);
                 mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                 if(keyboardHook==IntPtr.Zero || mouseHook==IntPtr.Zero) { Dispose(); throw new InvalidOperationException("无法安装专注输入拦截；本次专注没有启动。"); }
@@ -66,7 +67,7 @@ namespace TomatoLock {
                 if(code>=0) {
                     var k=(Keyboard)Marshal.PtrToStructure(data,typeof(Keyboard)); int key=(int)k.Key;
                     bool down=message.ToInt32()==0x100 || message.ToInt32()==0x104;
-                    keys.Update(key,down);
+                    keys.Update(key,down,AwakeSeconds());
                     // Reserve Esc during focus: prevents Ctrl+Shift+Esc launching Task Manager before the chord is complete.
                     if(key==27 || Chord) return new IntPtr(1);
                     if(!allowed(GetForegroundWindow())) { wake(); return new IntPtr(1); }

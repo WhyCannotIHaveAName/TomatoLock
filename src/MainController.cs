@@ -28,7 +28,7 @@ namespace TomatoLock {
         readonly DispatcherTimer timer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(100) };
         readonly Forms.NotifyIcon tray;
         Native.InputGate gate;
-        double last, savedAt, renderedAt, probeAt, folderAt, chordAt=-1;
+        double last, savedAt, renderedAt, probeAt, folderAt;
         string lastDate=DateTime.Now.ToString("yyyy-MM-dd");
         string site=""; IntPtr siteWindow; double siteAt;
         bool probeBusy, folderBusy, locked, disposed, exitRequested, updating;
@@ -116,13 +116,13 @@ namespace TomatoLock {
             store.Data.Active=new Session { Id=Guid.NewGuid().ToString("N"), Started=DateTimeOffset.Now, TargetSeconds=minutes*60, Status="active" };
             try { store.Save(); gate=new Native.InputGate(AllowedInput,()=>window.Dispatcher.BeginInvoke(new Action(Wake))); }
             catch { store.Data.Active=null; store.Save(); throw; }
-            folderHandoff.Reset(); Folders(); last=Native.AwakeSeconds(); chordAt=-1; Page("Focus"); Render(); SetEditable(false); Status("正在专注 · Esc + Ctrl + Delete + Shift 同时按住 1 秒可提前结束。");
+            folderHandoff.Reset(); Folders(); last=Native.AwakeSeconds(); Page("Focus"); Render(); SetEditable(false); Status("正在专注 · Esc + Ctrl + Delete + Shift 同时按住 1 秒可提前结束。");
         }
         void Finish(string status) {
             if(!Active) return;
             if(gate!=null) { gate.Dispose(); gate=null; }
             Session session=store.Data.Active; session.Status=status; session.Ended=DateTimeOffset.Now;
-            store.Data.Active=null; store.Data.Sessions.Add(session); chordAt=-1;
+            store.Data.Active=null; store.Data.Sessions.Add(session);
             SetEditable(true); CaptureAwards(); store.Save(); Reports.Generate(store,session.Ended.ToString("yyyy-MM-dd")); Render();
             if(status=="completed") {
                 if(!store.Data.Settings.Muted && celebrations.Count==0) TomatoArt.Play(false); Show();
@@ -133,7 +133,8 @@ namespace TomatoLock {
         void SetEditable(bool value) {
             foreach(string name in new [] {"DiscoverApps","AddApp","SaveSettings","ClearUsage"}) C<Button>(name).IsEnabled=value;
             C<StackPanel>("AllowedRows").IsEnabled=value;
-            foreach(string name in new [] {"TrackApps","TrackSites","Startup","MuteSounds"}) C<CheckBox>(name).IsEnabled=value;
+            foreach(string name in new [] {"TrackApps","TrackSites","MuteSounds"}) C<CheckBox>(name).IsEnabled=value;
+            C<CheckBox>("Startup").IsEnabled=value && !Program.IsolatedData;
             C<TextBox>("IdleLimit").IsEnabled=value;
             if(value) C<CheckBox>("TrackSites").IsEnabled=C<CheckBox>("TrackApps").IsChecked==true;
         }
@@ -142,10 +143,9 @@ namespace TomatoLock {
             if(Active) {
                 policy.Refresh();
                 if(gate!=null && gate.Chord) {
-                    if(chordAt<0) chordAt=now;
-                    if(now-chordAt>=1) { Finish("unlocked"); return; }
+                    if(gate.HeldFor(now,1)) { Finish("unlocked"); return; }
                     Status("四键解锁中…请保持按住。");
-                } else chordAt=-1;
+                }
                 if(!locked) { Logic.Advance(store.Data.Active,delta); if(store.Data.Active.ElapsedSeconds>=store.Data.Active.TargetSeconds) { Finish("completed"); return; } }
                 if(!locked) {
                     IntPtr foreground=Native.GetForegroundWindow();
@@ -162,7 +162,7 @@ namespace TomatoLock {
             if(date!=lastDate) { Reports.Generate(store,lastDate); Reports.CatchUp(store); lastDate=date; }
         }
         void SessionSwitch(object sender,SessionSwitchEventArgs e) { window.Dispatcher.BeginInvoke(new Action(()=>{
-            if(gate!=null)gate.Reset(); chordAt=-1;
+            if(gate!=null)gate.Reset();
             if(e.Reason==SessionSwitchReason.SessionLock || e.Reason==SessionSwitchReason.SessionLogoff || e.Reason==SessionSwitchReason.RemoteDisconnect || e.Reason==SessionSwitchReason.ConsoleDisconnect) locked=true;
             if(e.Reason==SessionSwitchReason.SessionUnlock || e.Reason==SessionSwitchReason.SessionLogon || e.Reason==SessionSwitchReason.RemoteConnect || e.Reason==SessionSwitchReason.ConsoleConnect) locked=false;
             last=Native.AwakeSeconds(); if(store.Healthy) store.Save();
@@ -269,12 +269,15 @@ namespace TomatoLock {
         void LoadSettings() {
             updating=true; var s=store.Data.Settings;
             C<CheckBox>("TrackApps").IsChecked=s.TrackApps; C<CheckBox>("TrackSites").IsChecked=s.TrackSites; C<CheckBox>("TrackSites").IsEnabled=s.TrackApps;
-            C<CheckBox>("MuteSounds").IsChecked=s.Muted; C<CheckBox>("Startup").IsChecked=s.Startup; C<TextBox>("IdleLimit").Text=s.IdleSeconds.ToString(); updating=false; AllowedRows();
+            C<CheckBox>("MuteSounds").IsChecked=s.Muted; C<CheckBox>("Startup").IsChecked=s.Startup && !Program.IsolatedData;
+            C<CheckBox>("Startup").IsEnabled=!Program.IsolatedData;
+            if(Program.IsolatedData) C<CheckBox>("Startup").ToolTip="独立数据目录不更改系统开机自启。";
+            C<TextBox>("IdleLimit").Text=s.IdleSeconds.ToString(); updating=false; AllowedRows();
         }
         void SaveSettings() {
             if(Active || updating) return;
             int idle; if(!Int32.TryParse(C<TextBox>("IdleLimit").Text,out idle) || idle<30 || idle>3600) throw new InvalidOperationException("空闲阈值应为 30–3600 秒。");
-            bool apps=C<CheckBox>("TrackApps").IsChecked==true, sites=apps && C<CheckBox>("TrackSites").IsChecked==true, startup=C<CheckBox>("Startup").IsChecked==true;
+            bool apps=C<CheckBox>("TrackApps").IsChecked==true, sites=apps && C<CheckBox>("TrackSites").IsChecked==true, startup=!Program.IsolatedData && C<CheckBox>("Startup").IsChecked==true;
             Program.SetStartup(startup);
             var s=store.Data.Settings; s.TrackApps=apps; s.TrackSites=sites; s.Startup=startup; s.IdleSeconds=idle; s.Muted=C<CheckBox>("MuteSounds").IsChecked==true; if(s.Muted) TomatoArt.Stop();
             consentGeneration++; site=""; store.Save(); Status("偏好已保存 · "+(apps ? "应用统计已开启" : "使用统计已关闭")+(sites ? " · 域名统计已开启" : ""));

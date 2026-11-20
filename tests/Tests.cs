@@ -44,6 +44,15 @@ public static class Tests {
             chord.Update(27,false); Assert(!chord.Complete,"releasing a required key cancels chord");
             chord.Reset(); foreach(int key in new [] {46,161,163,27})chord.Update(key,true); Assert(chord.Complete,"right-side modifiers and different key order accepted");
             chord.Reset(); Assert(!chord.Complete,"lock-screen reset clears stale keys");
+            foreach(int key in new [] {27,46,162,160}) chord.Update(key,true,10);
+            Assert(!chord.HeldFor(10.999,1) && chord.HeldFor(11,1),"unlock requires a full second from the last required key");
+            chord.Update(160,false,10.95); chord.Update(160,true,10.99);
+            Assert(!chord.HeldFor(11,1) && chord.HeldFor(11.99,1),"brief modifier release between timer ticks restarts the hold");
+            chord.Update(27,true,11.5);
+            Assert(chord.HeldFor(11.99,1),"key repeat does not restart a continuous hold");
+            chord.Reset(); Assert(!chord.HeldFor(99,1),"session reset clears the hold deadline");
+            chord.Update(27,true,20); chord.Update(46,true,20); chord.Update(163,true,20); chord.Update(161,true,20.5);
+            Assert(!chord.HeldFor(21,1) && chord.HeldFor(21.5,1),"right modifiers measure overlap rather than first key time");
             var handoff=new FolderHandoff(); var folder=new IntPtr(17);
             handoff.Observe(folder,10); Assert(handoff.Waiting(folder,13.9),"new Explorer retains focus while verification runs");
             handoff.Observe(folder,13.9); Assert(!handoff.Waiting(folder,14),"repeated input cannot extend unverified folder grace");
