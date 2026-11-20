@@ -7,8 +7,33 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Interop;
 using TomatoLock;
 public static class Smoke {
+    static void CheckFullScreen(Window window) {
+        Native.WindowRect actual;
+        IntPtr handle=new WindowInteropHelper(window).Handle;
+        var expected=System.Windows.Forms.Screen.FromHandle(handle).Bounds;
+        if(!Native.GetWindowRect(handle,out actual) || actual.Left!=expected.Left || actual.Top!=expected.Top || actual.Right!=expected.Right || actual.Bottom!=expected.Bottom)
+            throw new Exception("Focus window does not cover its full monitor including taskbar");
+        if(window.WindowStyle!=WindowStyle.None || window.ResizeMode!=ResizeMode.NoResize || window.Topmost) throw new Exception("Incorrect focus window styles");
+    }
+    static void CheckWindowMode() {
+        var test=new Window {Title="TomatoLock fullscreen regression",Left=120,Top=90,Width=740,Height=500,ShowActivated=false,ShowInTaskbar=false};
+        try {
+            test.Show(); test.UpdateLayout();
+            var original=test.RestoreBounds; var mode=new FocusWindowMode(test);
+            mode.Enter(); test.UpdateLayout(); CheckFullScreen(test);
+            test.WindowState=WindowState.Minimized; mode.Ensure(); test.UpdateLayout(); CheckFullScreen(test);
+            mode.Restore(); test.UpdateLayout();
+            if(test.WindowState!=WindowState.Normal || test.WindowStyle!=WindowStyle.SingleBorderWindow || test.ResizeMode!=ResizeMode.CanResize || Math.Abs(test.Left-original.Left)>2 || Math.Abs(test.Top-original.Top)>2 || Math.Abs(test.Width-original.Width)>2 || Math.Abs(test.Height-original.Height)>2)
+                throw new Exception("Original window placement was not restored");
+            test.WindowState=WindowState.Maximized; test.UpdateLayout();
+            mode.Enter(); test.UpdateLayout(); CheckFullScreen(test); mode.Restore();
+            if(test.WindowState!=WindowState.Maximized) throw new Exception("Original maximized state was lost");
+            Console.WriteLine("PASS: native fullscreen covers monitor, survives minimize, and restores normal/maximized placement");
+        } finally { test.Close(); }
+    }
     static object StartupValue() {
         using(var key=Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")) return key==null ? null : key.GetValue("TomatoLock");
     }
@@ -22,7 +47,7 @@ public static class Smoke {
             }
             string dir=Path.GetFullPath("test-output/smoke"); Directory.CreateDirectory(dir);
             typeof(Program).GetField("customDataRoot",BindingFlags.Static|BindingFlags.NonPublic).SetValue(null,Path.Combine(dir,"data"));
-            var app=new Application(); Window window;
+            var app=new Application {ShutdownMode=ShutdownMode.OnExplicitShutdown}; Window window;
             using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("Main.xaml")) window=(Window)XamlReader.Load(stream);
             var smokeStore=new Store(Path.Combine(dir,"data")); smokeStore.Data.Settings.Muted=true;
             using(var controller=new MainController(window,smokeStore)) {
@@ -62,6 +87,7 @@ public static class Smoke {
                 using(var file=File.Create(Path.Combine(dir,"Achievement-toast.png"))) toastEncoder.Save(file);
                 Console.WriteLine("PASS: achievement toast renders");
             }
+            CheckWindowMode();
             return 0;
         } catch(Exception e) { Console.Error.WriteLine(e); return 1; }
     }

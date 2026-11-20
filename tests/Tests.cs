@@ -77,6 +77,27 @@ public static class Tests {
             chord.Update(27,false); Assert(!chord.Complete,"releasing a required key cancels chord");
             chord.Reset(); foreach(int key in new [] {46,161,163,27})chord.Update(key,true); Assert(chord.Complete,"right-side modifiers and different key order accepted");
             chord.Reset(); Assert(!chord.Complete,"lock-screen reset clears stale keys");
+            var ordinary=new UnlockChord(); ordinary.Update(27,true,0);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,true,true),"standalone Escape works in allowed applications");
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,true,false),"Escape can cancel an unrecognized capture overlay");
+            ordinary.Reset();
+            bool standalone=true;
+            foreach(int key in new [] {162,160,46}) { ordinary.Update(key,true,1); standalone &= !FocusInput.SuppressKeyboard(ordinary,key,true,true); ordinary.Update(key,false,1.1); }
+            Assert(standalone,"Control Shift and Delete retain their normal individual functions");
+            ordinary.Update(162,true,2); ordinary.Update(160,true,2); ordinary.Update(27,true,2);
+            Assert(FocusInput.SuppressKeyboard(ordinary,27,true,true),"Ctrl Shift Escape stays reserved without blocking Escape alone");
+            ordinary.Update(46,true,2.1);
+            Assert(FocusInput.SuppressKeyboard(ordinary,46,true,true) && ordinary.HeldFor(3.1,1),"complete four-key chord is intercepted and still unlocks after one second");
+            ordinary.Update(162,false,3.2);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,162,false,false),"modifier release is delivered even when the foreground changes");
+            Assert(FocusInput.SuppressKeyboard(ordinary,65,true,false) && !FocusInput.SuppressKeyboard(ordinary,65,true,true),"ordinary typing remains limited to allowed windows");
+            ordinary.Update(27,false,3.3);
+            Assert(!FocusInput.SuppressKeyboard(ordinary,27,false,false),"Escape release cannot leave the screenshot tool with a stuck key");
+            var captureApps=new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"D:\Weixin\Weixin.exe" };
+            Assert(FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::ScreenshotView",captureApps),"known WeChat screenshot window is permitted");
+            Assert(!FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::MainWindow",captureApps),"screenshot exception does not permit the WeChat chat window");
+            Assert(!FocusInput.CaptureRoot(@"C:\Other\Weixin.exe","mmui::ScreenshotView",captureApps),"matching capture class from another executable is rejected");
+            Assert(!FocusInput.CaptureRoot(@"D:\Weixin\Weixin.exe","mmui::ScreenshotViewOther",captureApps),"capture class name must match exactly");
             foreach(int key in new [] {27,46,162,160}) chord.Update(key,true,10);
             Assert(!chord.HeldFor(10.999,1) && chord.HeldFor(11,1),"unlock requires a full second from the last required key");
             chord.Update(160,false,10.95); chord.Update(160,true,10.99);

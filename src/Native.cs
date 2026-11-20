@@ -17,6 +17,9 @@ namespace TomatoLock {
         [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
+        [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint command);
+        [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window,out WindowRect bounds);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LastInput info);
@@ -31,6 +34,7 @@ namespace TomatoLock {
         [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
         [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
         [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+        [StructLayout(LayoutKind.Sequential)] public struct WindowRect { public int Left,Top,Right,Bottom; }
         [StructLayout(LayoutKind.Sequential)] public struct LastInput { public uint Size, Time; }
         [StructLayout(LayoutKind.Sequential)] struct Keyboard { public uint Key, Scan, Flags, Time; public IntPtr Extra; }
         [StructLayout(LayoutKind.Sequential)] struct Mouse { public Point Point; public uint Data, Flags, Time; public IntPtr Extra; }
@@ -83,9 +87,11 @@ namespace TomatoLock {
                     var k=(Keyboard)Marshal.PtrToStructure(data,typeof(Keyboard)); int key=(int)k.Key;
                     bool down=message.ToInt32()==0x100 || message.ToInt32()==0x104;
                     keys.Update(key,down,AwakeSeconds());
-                    // Reserve Esc during focus: prevents Ctrl+Shift+Esc launching Task Manager before the chord is complete.
-                    if(key==27 || Chord) return new IntPtr(1);
-                    if(!allowed(GetForegroundWindow())) { wake(); return new IntPtr(1); }
+                    bool targetAllowed=!down || key==27 || Chord || allowed(GetForegroundWindow());
+                    if(FocusInput.SuppressKeyboard(keys,key,down,targetAllowed)) {
+                        if(!targetAllowed) wake();
+                        return new IntPtr(1);
+                    }
                 }
                 return CallNextHookEx(keyboardHook,code,message,data);
             }
@@ -104,11 +110,16 @@ namespace TomatoLock {
         readonly HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<IntPtr, bool> cache = new Dictionary<IntPtr, bool>();
         readonly HashSet<IntPtr> localFolders = new HashSet<IntPtr>();
+        readonly HashSet<string> captureApps=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         double foldersAt = -100;
         readonly string self = Process.GetCurrentProcess().MainModule.FileName;
         readonly string explorer=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe");
         public void Configure(IEnumerable<AllowedApp> apps) {
             paths.Clear(); cache.Clear(); paths.Add(self);
+            captureApps.Clear();
+            foreach(string name in new [] {"Weixin","WeChat"}) foreach(var process in Process.GetProcessesByName(name)) using(process) {
+                try { string path=Native.CanonicalPath(process.MainModule.FileName); if(File.Exists(path)) captureApps.Add(path); } catch {}
+            }
             foreach(var app in apps) {
                 if(!File.Exists(app.Path)) throw new InvalidOperationException(app.Name+" 已移动或卸载，请重新选择。");
                 if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException(app.Name+" 已更新，请在设置中重新确认可执行文件。");
@@ -122,12 +133,23 @@ namespace TomatoLock {
             bool result; if(cache.TryGetValue(window,out result)) return result;
             string path=Native.ProcessPath(window);
             result=paths.Contains(path);
+            if(!result) result=CaptureAllowed(window);
             if(String.Equals(path,explorer,StringComparison.OrdinalIgnoreCase)) {
                 // Explorer shell and file windows are navigation surfaces. Executables they launch are separately checked.
                 string cls=Native.ClassName(window);
                 result=((cls=="CabinetWClass" || cls=="ExploreWClass") && Native.AwakeSeconds()-foldersAt<3 && localFolders.Contains(window)) || cls=="Progman" || cls=="WorkerW" || cls=="Shell_TrayWnd" || cls=="Shell_SecondaryTrayWnd";
             }
             cache[window]=result; return result;
+        }
+        bool CaptureAllowed(IntPtr window) {
+            IntPtr candidate=Native.GetAncestor(window,2);
+            for(int depth=0;candidate!=IntPtr.Zero && depth<8;depth++) {
+                string path=Native.ProcessPath(candidate);
+                if(!captureApps.Contains(path)) return false;
+                if(FocusInput.CaptureRoot(path,Native.ClassName(candidate),captureApps)) return true;
+                candidate=Native.GetWindow(candidate,4); // GW_OWNER: screenshot-owned toolbar / dialog only.
+            }
+            return false;
         }
         public bool AllowsPath(string path) { return paths.Contains(path); }
         public bool IsFolderWindow(IntPtr window) {

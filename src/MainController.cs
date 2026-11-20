@@ -16,8 +16,48 @@ using Microsoft.Win32;
 using Forms=System.Windows.Forms;
 
 namespace TomatoLock {
+    public sealed class FocusWindowMode {
+        readonly Window window;
+        WindowState previousState; WindowStyle previousStyle; ResizeMode previousResize;
+        Rect previousBounds;
+        bool applying;
+        public bool Active { get; private set; }
+        public FocusWindowMode(Window window) {
+            this.window=window;
+            window.SizeChanged+=(s,e)=>{ if(Active && !applying) Ensure(); };
+            window.StateChanged+=(s,e)=>{ if(Active && !applying) Ensure(); };
+        }
+        public void Enter() {
+            if(Active) { Ensure(); return; }
+            previousState=window.WindowState; previousStyle=window.WindowStyle; previousResize=window.ResizeMode;
+            previousBounds=window.RestoreBounds;
+            Active=true;
+            try { Ensure(); } catch { Restore(); throw; }
+        }
+        public void Ensure() {
+            if(!Active || applying) return;
+            applying=true;
+            try {
+                window.WindowState=WindowState.Normal;
+                window.WindowStyle=WindowStyle.None; window.ResizeMode=ResizeMode.NoResize;
+                if(!window.IsVisible) window.Show();
+                IntPtr handle=new WindowInteropHelper(window).EnsureHandle();
+                var bounds=Forms.Screen.FromHandle(handle).Bounds;
+                if(!Native.SetWindowPos(handle,IntPtr.Zero,bounds.X,bounds.Y,bounds.Width,bounds.Height,0x14))
+                    throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+            } finally { applying=false; }
+        }
+        public void Restore() {
+            if(!Active) return;
+            Active=false;
+            window.WindowState=WindowState.Normal; window.WindowStyle=previousStyle; window.ResizeMode=previousResize;
+            if(!previousBounds.IsEmpty) { window.Left=previousBounds.Left; window.Top=previousBounds.Top; window.Width=previousBounds.Width; window.Height=previousBounds.Height; }
+            window.WindowState=previousState;
+        }
+    }
     public sealed class MainController : IDisposable {
         readonly Window window;
+        readonly FocusWindowMode focusWindow;
         readonly Store store;
         readonly AppPolicy policy=new AppPolicy();
         readonly FolderHandoff folderHandoff=new FolderHandoff();
@@ -41,10 +81,11 @@ namespace TomatoLock {
         bool Active { get { return store.Data.Active!=null; } }
         public MainController(Window window, Store store) {
             this.window=window; this.store=store;
+            focusWindow=new FocusWindowMode(window);
             if(store.Healthy && AppPolicy.PruneApproved(store.Data.Settings.Apps)>0) store.Save();
             window.SourceInitialized+=(s,e)=>{ handle=new WindowInteropHelper(window).Handle; };
             window.Closing+=(s,e)=>{
-                if(Active) { e.Cancel=true; window.Hide(); tray.ShowBalloonTip(3000,"专注仍在继续","从托盘打开；提前结束请同时按住 Esc + Ctrl + Delete + Shift 1 秒。",Forms.ToolTipIcon.Info); }
+                if(Active) { e.Cancel=true; window.Dispatcher.BeginInvoke(new Action(Show)); Status("专注中：提前结束请同时按住 Esc + Ctrl + Delete + Shift 1 秒。"); }
                 else if(!exitRequested && store.Data.Settings.TrackApps) { e.Cancel=true; window.Hide(); tray.ShowBalloonTip(2000,"后台统计中","右键托盘选择退出可停止统计。",Forms.ToolTipIcon.Info); }
             };
             var menu=new Forms.ContextMenuStrip(); menu.Items.Add("打开 TomatoLock",null,(s,e)=>Show());
@@ -84,7 +125,7 @@ namespace TomatoLock {
             if(!String.IsNullOrEmpty(store.Notice)) Status(store.Notice);
             timer.Tick+=(s,e)=>Tick(); timer.Start();
         }
-        void Show() { window.Show(); window.WindowState=WindowState.Normal; window.Activate(); }
+        void Show() { window.Show(); if(focusWindow.Active) focusWindow.Ensure(); else if(window.WindowState==WindowState.Minimized) window.WindowState=WindowState.Normal; window.Activate(); }
         bool AllowedInput(IntPtr target) {
             bool allowed=policy.Allowed(target);
             if(!allowed && policy.IsFolderWindow(target)) folderHandoff.Observe(target,Native.AwakeSeconds());
@@ -96,7 +137,7 @@ namespace TomatoLock {
                 folderHandoff.Observe(foreground,Native.AwakeSeconds());
                 if(folderHandoff.Waiting(foreground,Native.AwakeSeconds())) return;
             }
- if(!window.IsVisible) window.Show(); if(window.WindowState==WindowState.Minimized) window.WindowState=WindowState.Normal; Native.SetForegroundWindow(handle); }
+            focusWindow.Ensure(); Native.SetForegroundWindow(handle); }
         void Page(string page) {
             foreach(string p in new [] {"Focus","History","Achievements","Settings"}) {
                 C<ScrollViewer>(p+"Page").Visibility=p==page ? Visibility.Visible : Visibility.Collapsed;
@@ -113,15 +154,16 @@ namespace TomatoLock {
             int minutes=Minutes(); if(minutes==0) throw new InvalidOperationException("请输入 1–720 之间的整数分钟。");
             if(!store.Healthy) throw new IOException(store.Notice);
             policy.Configure(store.Data.Settings.Apps);
-            if(MessageBox.Show(window,"即将专注 "+minutes+" 分钟。\n\n仅允许已确认的 ChatGPT、WPS、本地文件浏览和内置阅读器。其他前台应用会被拦截，未保存的内容不会被关闭。\n\n提前结束：同时按住 Esc + Ctrl + Delete + Shift 1 秒。专注期间 Esc 不会传给其他应用。睡眠 / 锁屏暂停计时。\n\n这是应用级限制，无法封锁 Windows 安全界面或强制结束进程。开始吗？","开始专注",MessageBoxButton.OKCancel,MessageBoxImage.Information)!=MessageBoxResult.OK) return;
+            if(MessageBox.Show(window,"即将专注 "+minutes+" 分钟。\n\n专注时自动全屏。可使用已确认的 ChatGPT、WPS、本地文件浏览和内置阅读器。其他前台应用会被拦截，未保存的内容不会被关闭。专注期间不支持微信截图，请勿使用 Alt+A；如需截图，请先结束专注。\n\n提前结束：同时按住 Esc + Ctrl + Delete + Shift 1 秒。单独的 Esc 可正常取消；Ctrl + Shift + Esc 仍被保留。睡眠 / 锁屏暂停计时。\n\n这是应用级限制，无法封锁 Windows 安全界面或强制结束进程。开始吗？","开始专注",MessageBoxButton.OKCancel,MessageBoxImage.Information)!=MessageBoxResult.OK) return;
             store.Data.Active=new Session { Id=Guid.NewGuid().ToString("N"), Started=DateTimeOffset.Now, TargetSeconds=minutes*60, Status="active" };
-            try { store.Save(); gate=new Native.InputGate(AllowedInput,()=>window.Dispatcher.BeginInvoke(new Action(Wake))); }
-            catch { store.Data.Active=null; store.Save(); throw; }
+            try { store.Save(); focusWindow.Enter(); gate=new Native.InputGate(AllowedInput,()=>window.Dispatcher.BeginInvoke(new Action(Wake))); }
+            catch { if(gate!=null) {gate.Dispose();gate=null;} focusWindow.Restore(); store.Data.Active=null; store.Save(); throw; }
             folderHandoff.Reset(); Folders(); last=Native.AwakeSeconds(); Page("Focus"); Render(); SetEditable(false); Status("正在专注 · Esc + Ctrl + Delete + Shift 同时按住 1 秒可提前结束。");
         }
         void Finish(string status) {
             if(!Active) return;
             if(gate!=null) { gate.Dispose(); gate=null; }
+            focusWindow.Restore();
             Session session=store.Data.Active; session.Status=status; session.Ended=DateTimeOffset.Now;
             store.Data.Active=null; store.Data.Sessions.Add(session);
             SetEditable(true); CaptureAwards(); store.Save(); Reports.Generate(store,session.Ended.ToString("yyyy-MM-dd")); Render();
@@ -343,6 +385,7 @@ namespace TomatoLock {
         }
         public void FailSafe(Exception error) {
             if(gate!=null) { gate.Dispose(); gate=null; }
+            focusWindow.Restore();
             timer.Stop();
             if(Active) { var s=store.Data.Active; s.Status="interrupted"; s.Ended=DateTimeOffset.Now; store.Data.Sessions.Add(s); store.Data.Active=null; }
             try { store.Save(); } catch {}
@@ -352,6 +395,7 @@ namespace TomatoLock {
         }
         public void Dispose() {
             if(disposed)return; disposed=true; TomatoArt.Stop(); timer.Stop(); if(gate!=null)gate.Dispose();
+            focusWindow.Restore();
             SystemEvents.SessionSwitch-=SessionSwitch; tray.Visible=false; tray.Dispose();
             try { if(store.Healthy) { store.Save(); Reports.Generate(store,DateTime.Now.ToString("yyyy-MM-dd")); } } catch {}
         }

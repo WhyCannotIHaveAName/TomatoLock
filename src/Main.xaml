@@ -17,7 +17,7 @@
         <Button x:Name="NavAchievements" Content="☆   成就收藏" Background="#365D43" Foreground="White" BorderThickness="0"/>
         <Button x:Name="NavSettings" Content="⚙   偏好设置" Background="#365D43" Foreground="White" BorderThickness="0"/>
       </StackPanel>
-      <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom"><TextBlock Text="LOCAL FIRST" Foreground="#B8CCC0" FontSize="11"/><TextBlock Text="离线可用 · 数据留在本机" Foreground="#B8CCC0" FontSize="11" Margin="0,7,0,0"/><TextBlock Text="v1.1.2  /  Windows" Foreground="#8EAD9D" FontSize="11" Margin="0,7,0,0"/></StackPanel>
+      <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom"><TextBlock Text="LOCAL FIRST" Foreground="#B8CCC0" FontSize="11"/><TextBlock Text="离线可用 · 数据留在本机" Foreground="#B8CCC0" FontSize="11" Margin="0,7,0,0"/><TextBlock Text="v1.1.4  /  Windows" Foreground="#8EAD9D" FontSize="11" Margin="0,7,0,0"/></StackPanel>
     </DockPanel></Border>
     <Grid Grid.Column="1" Margin="30,24,30,16">
       <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -42,6 +42,7 @@
           <Border Style="{StaticResource Card}" Padding="20,17"><StackPanel><TextBlock Text="专注期间，可使用" FontWeight="SemiBold"/><TextBlock Text="ChatGPT 桌面客户端 · WPS Office · 本地文件" Foreground="#60756A" Margin="0,7,0,12"/>
             <WrapPanel><Button x:Name="OpenChat" Content="打开 ChatGPT"/><Button x:Name="OpenWps" Content="打开 WPS"/><Button x:Name="OpenFile" Content="阅读本地文件"/><Button x:Name="OpenFolder" Content="打开本地文件夹"/></WrapPanel>
             <TextBlock Text="提前结束：同时按住 Esc + Ctrl + Delete + Shift，保持 1 秒。" Foreground="#6F7D72" FontSize="12" TextWrapping="Wrap"/>
+            <TextBlock Text="专注期间不支持微信截图，请勿使用 Alt+A；如需截图，请先结束专注。" Foreground="#9C3E2B" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
           </StackPanel></Border>
           <TextBlock x:Name="TodaySummary" Foreground="#897B67" TextWrapping="Wrap"/>
         </StackPanel></ScrollViewer>
@@ -59,7 +60,7 @@
           <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="允许的桌面应用" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="第一次使用，请先打开 ChatGPT 和 WPS，再点自动识别。只信任你确认的程序完整路径和文件指纹；应用更新后需重新确认。" TextWrapping="Wrap" Foreground="#897B67" Margin="0,8,0,12"/><WrapPanel><Button x:Name="DiscoverApps" Content="自动识别应用"/><Button x:Name="AddApp" Content="手动选择程序"/></WrapPanel><StackPanel x:Name="AllowedRows"/></StackPanel></Border>
           <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="可选的使用统计" FontSize="18" FontWeight="SemiBold"/><CheckBox x:Name="TrackApps" Content="我同意在后台统计前台应用的活跃时长"/><CheckBox x:Name="TrackSites" Content="我同意读取浏览器地址栏，并仅保存域名与时长"/><TextBlock Text="网站识别适配 Chrome / Edge / Firefox，也尝试兼容 Brave / Vivaldi / Opera。读取失败标为“未识别网站”。不保存完整 URL、标题、搜索词或页面内容；隐私窗口若能读取地址栏，也会被统计。" TextWrapping="Wrap" Foreground="#897B67" FontSize="12"/><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock Text="无输入超过" VerticalAlignment="Center"/><TextBox x:Name="IdleLimit" Text="180" Width="72" Margin="10,0"/><TextBlock Text="秒后排除统计（30–3600）" VerticalAlignment="Center"/></StackPanel>
           <CheckBox x:Name="Startup" Content="我同意开机自启（登录 Windows 后，最小化到托盘）"/><TextBlock Text="默认均关闭。退出程序后不统计；跨日自动生成 Markdown 与 CSV 日报，下次启动补生成未运行期间已有记录的日报。" TextWrapping="Wrap" Foreground="#897B67" FontSize="12"/><Button x:Name="SaveSettings" Content="保存偏好" HorizontalAlignment="Left" Margin="0,16,0,0"/></StackPanel></Border>
-          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="使用边界与数据" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="这是应用级自律工具，不能封锁 Windows 安全桌面、管理员权限、重启或强制结束进程。专注中 Esc 保留给解锁组合，不会传给其他应用。文件浏览器仅放行本地磁盘位置；ChatGPT / WPS 自身的联网功能仍可使用。后台音视频不会自动停止。" TextWrapping="Wrap" Foreground="#897B67" Margin="0,10,0,12"/><WrapPanel><Button x:Name="DataFolder" Content="打开数据文件夹"/><Button x:Name="ClearUsage" Content="删除应用 / 网站统计"/></WrapPanel></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="使用边界与数据" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="这是应用级自律工具，不能封锁 Windows 安全桌面、管理员权限、重启或强制结束进程。Esc 可正常取消；完整四键组合用于提前解锁。专注期间不支持微信截图，请勿使用 Alt+A；如需截图，请先结束专注。文件浏览器仅放行本地磁盘位置；ChatGPT / WPS 自身的联网功能仍可使用。后台音视频不会自动停止。" TextWrapping="Wrap" Foreground="#897B67" Margin="0,10,0,12"/><WrapPanel><Button x:Name="DataFolder" Content="打开数据文件夹"/><Button x:Name="ClearUsage" Content="删除应用 / 网站统计"/></WrapPanel></StackPanel></Border>
         </StackPanel></ScrollViewer>
       </Grid>
       <Border Grid.Row="2" BorderBrush="#EADBC5" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,12,0,0"><TextBlock x:Name="Status" Text="就绪 · 记录保存在本机" Foreground="#62786B" FontSize="12" TextWrapping="Wrap"/></Border>
