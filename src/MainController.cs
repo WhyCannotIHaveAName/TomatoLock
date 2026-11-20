@@ -41,6 +41,7 @@ namespace TomatoLock {
         bool Active { get { return store.Data.Active!=null; } }
         public MainController(Window window, Store store) {
             this.window=window; this.store=store;
+            if(store.Healthy && AppPolicy.PruneApproved(store.Data.Settings.Apps)>0) store.Save();
             window.SourceInitialized+=(s,e)=>{ handle=new WindowInteropHelper(window).Handle; };
             window.Closing+=(s,e)=>{
                 if(Active) { e.Cancel=true; window.Hide(); tray.ShowBalloonTip(3000,"专注仍在继续","从托盘打开；提前结束请同时按住 Esc + Ctrl + Delete + Shift 1 秒。",Forms.ToolTipIcon.Info); }
@@ -292,25 +293,21 @@ namespace TomatoLock {
             if(rows.Children.Count==0) rows.Children.Add(Text("尚未确认应用路径；仍可使用本地文本 / 图片阅读器。",12));
         }
         void Register(string path) {
-            string name=AppPolicy.Qualify(path);
-            store.Data.Settings.Apps.RemoveAll(x=>String.Equals(x.Path,path,StringComparison.OrdinalIgnoreCase));
-            store.Data.Settings.Apps.Add(new AllowedApp { Name=name,Path=path,Sha256=Native.Hash(path) });
+            AppPolicy.RegisterApproved(store.Data.Settings.Apps,new [] {path});
         }
         void Discover() {
             if(Active)return;
             var paths=AppPolicy.Discover();
             if(paths.Count==0) throw new InvalidOperationException("没有找到应用。请先打开 ChatGPT / WPS，再试一次；也可手动选择 exe 文件。");
             if(MessageBox.Show(window,"是否确认以下是你信任的 ChatGPT / WPS 程序？\n\n"+String.Join("\n",paths),"确认允许的应用",MessageBoxButton.OKCancel)!=MessageBoxResult.OK) return;
-            foreach(string p in paths) Register(p); store.Save(); AllowedRows(); Status("已确认 "+paths.Count+" 个程序。应用更新后可再次识别。");
+            AppPolicy.RegisterApproved(store.Data.Settings.Apps,paths); store.Save(); AllowedRows(); Status("已确认 "+paths.Count+" 个程序，并替换旧路径。应用更新后可再次识别。");
         }
         void AddApp() {
             if(Active)return; var d=new OpenFileDialog { Title="选择已安装的 ChatGPT / WPS 程序",Filter="应用程序|*.exe" };
             if(d.ShowDialog(window)==true) { AppPolicy.Qualify(d.FileName); if(MessageBox.Show(window,"确认信任这个程序？\n"+d.FileName,"确认程序",MessageBoxButton.OKCancel)!=MessageBoxResult.OK)return; Register(d.FileName); store.Save(); AllowedRows(); }
         }
         void LaunchApp(string prefix) {
-            var app=store.Data.Settings.Apps.FirstOrDefault(x=>x.Name.StartsWith(prefix));
-            if(app==null) throw new InvalidOperationException("请先在偏好设置中识别或选择 "+prefix+" 的安装路径。");
-            if(Native.Hash(app.Path)!=app.Sha256) throw new InvalidOperationException("应用已更新，请在专注结束后重新确认路径。");
+            var app=AppPolicy.SelectApproved(store.Data.Settings.Apps,prefix);
             AppLauncher.Launch(app);
         }
         void OpenDirectory(string path) {

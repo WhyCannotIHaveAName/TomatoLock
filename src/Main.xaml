@@ -17,7 +17,7 @@
         <Button x:Name="NavAchievements" Content="☆   成就收藏" Background="#365D43" Foreground="White" BorderThickness="0"/>
         <Button x:Name="NavSettings" Content="⚙   偏好设置" Background="#365D43" Foreground="White" BorderThickness="0"/>
       </StackPanel>
-      <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom"><TextBlock Text="LOCAL FIRST" Foreground="#B8CCC0" FontSize="11"/><TextBlock Text="离线可用 · 数据留在本机" Foreground="#B8CCC0" FontSize="11" Margin="0,7,0,0"/><TextBlock Text="v1.1.1  /  Windows" Foreground="#8EAD9D" FontSize="11" Margin="0,7,0,0"/></StackPanel>
+      <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom"><TextBlock Text="LOCAL FIRST" Foreground="#B8CCC0" FontSize="11"/><TextBlock Text="离线可用 · 数据留在本机" Foreground="#B8CCC0" FontSize="11" Margin="0,7,0,0"/><TextBlock Text="v1.1.2  /  Windows" Foreground="#8EAD9D" FontSize="11" Margin="0,7,0,0"/></StackPanel>
     </DockPanel></Border>
     <Grid Grid.Column="1" Margin="30,24,30,16">
       <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

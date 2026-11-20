@@ -27,7 +27,7 @@ $argsCommon = @('/nologo','/optimize+','/platform:x64','/codepage:65001') + @($r
 & $compiler @argsCommon /target:winexe /out:build\TomatoLock.exe /win32manifest:src\app.manifest /win32icon:build\TomatoLock.ico /resource:src\Main.xaml,Main.xaml /resource:assets\tomato-badges.png,tomato-badges.png src\Core.cs src\Native.cs src\MainController.cs src\AppLauncher.cs src\TomatoArt.cs src\Program.cs
 if ($LASTEXITCODE -ne 0) { throw 'App compilation failed' }
 Copy-Item -LiteralPath src\TomatoLock.exe.config -Destination build\TomatoLock.exe.config -Force
-& $compiler /nologo /optimize+ /platform:x64 /codepage:65001 /target:winexe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:build\TomatoLock-Setup-1.1.1.exe /win32manifest:src\app.manifest /win32icon:build\TomatoLock.ico /resource:build\TomatoLock.exe,TomatoLock.exe /resource:src\TomatoLock.exe.config,TomatoLock.exe.config src\Setup.cs
+& $compiler /nologo /optimize+ /platform:x64 /codepage:65001 /target:winexe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:build\TomatoLock-Setup-1.1.2.exe /win32manifest:src\app.manifest /win32icon:build\TomatoLock.ico /resource:build\TomatoLock.exe,TomatoLock.exe /resource:src\TomatoLock.exe.config,TomatoLock.exe.config src\Setup.cs
 if ($LASTEXITCODE -ne 0) { throw 'Setup compilation failed' }
 if ($Test) {
     & $compiler @argsCommon /target:winexe /main:DesktopHost /out:build\TomatoLock.DesktopHost.exe /win32manifest:src\app.manifest /win32icon:build\TomatoLock.ico /resource:src\Main.xaml,Main.xaml /resource:assets\tomato-badges.png,tomato-badges.png src\Core.cs src\Native.cs src\MainController.cs src\AppLauncher.cs src\TomatoArt.cs src\Program.cs tests\DesktopHost.cs
@@ -42,14 +42,14 @@ if ($Test) {
     if ($LASTEXITCODE -ne 0) { throw 'UI smoke test compilation failed' }
     & .\build\TomatoLock.Smoke.exe
     if ($LASTEXITCODE -ne 0) { throw 'UI smoke tests failed' }
-    $verify = Start-Process -FilePath (Join-Path $outDir 'TomatoLock-Setup-1.1.1.exe') -ArgumentList '--verify' -WindowStyle Hidden -Wait -PassThru
+    $verify = Start-Process -FilePath (Join-Path $outDir 'TomatoLock-Setup-1.1.2.exe') -ArgumentList '--verify' -WindowStyle Hidden -Wait -PassThru
     if ($verify.ExitCode -ne 0) { throw 'Setup payload verification failed' }
 }
 if ($Package) {
     if (!$PackageDirectory) { $PackageDirectory = Join-Path $PSScriptRoot 'releases' }
     New-Item -ItemType Directory -Path $PackageDirectory -Force | Out-Null
-    Copy-Item -LiteralPath build\TomatoLock-Setup-1.1.1.exe -Destination $PackageDirectory -Force
-    Compress-Archive -Path build\TomatoLock.exe,build\TomatoLock.exe.config,README.md,LICENSE -DestinationPath (Join-Path $PackageDirectory 'TomatoLock-Portable-1.1.1-win-x64.zip') -Force
+    Copy-Item -LiteralPath build\TomatoLock-Setup-1.1.2.exe -Destination $PackageDirectory -Force
+    Compress-Archive -Path build\TomatoLock.exe,build\TomatoLock.exe.config,README.md,LICENSE -DestinationPath (Join-Path $PackageDirectory 'TomatoLock-Portable-1.1.2-win-x64.zip') -Force
     Get-ChildItem -LiteralPath $PackageDirectory -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Path) } | Set-Content -LiteralPath (Join-Path $PackageDirectory 'SHA256SUMS.txt') -Encoding ASCII
 }
 Write-Output 'Build completed.'

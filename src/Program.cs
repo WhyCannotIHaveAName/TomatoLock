@@ -10,8 +10,8 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("TomatoLock")]
 [assembly: AssemblyProduct("TomatoLock")]
-[assembly: AssemblyVersion("1.1.1.0")]
-[assembly: AssemblyFileVersion("1.1.1.0")]
+[assembly: AssemblyVersion("1.1.2.0")]
+[assembly: AssemblyFileVersion("1.1.2.0")]
 
 namespace TomatoLock {
     public static class Program {

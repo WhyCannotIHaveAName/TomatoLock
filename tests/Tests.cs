@@ -1,8 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
 using TomatoLock;
 public static class Tests {
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetShortPathName(string path,StringBuilder result,uint length);
     static int count;
     static void Assert(bool condition,string name) { if(!condition) throw new Exception("FAIL: "+name); count++; Console.WriteLine("PASS: "+name); }
     public static int Main() {
@@ -39,6 +43,35 @@ public static class Tests {
             string bad=Path.Combine(root,"bad"); Directory.CreateDirectory(bad); File.WriteAllText(Path.Combine(bad,"state.json"),"bad"); var blocked=new Store(bad);
             Assert(!blocked.Healthy,"unrecoverable data refuses a fresh session");
             bool refused=false; try { AppPolicy.Qualify("notepad.exe"); } catch { refused=true; } Assert(refused,"arbitrary executable not allowlisted");
+            bool refusedBackup=false; try { AppPolicy.Qualify("wps.exe_bk"); } catch(InvalidOperationException) { refusedBackup=true; }
+            Assert(refusedBackup,"WPS updater backup is not an executable candidate");
+            string oldChat=Path.Combine(root,"old application","ChatGPT.exe"), newChat=Path.Combine(root,"new application","ChatGPT.exe"), wps=Path.Combine(root,"office","wps.exe");
+            foreach(string p in new [] {oldChat,newChat,wps}) { Directory.CreateDirectory(Path.GetDirectoryName(p)); File.WriteAllText(p,p); }
+            var approved=new List<AllowedApp>();
+            AppPolicy.RegisterApproved(approved,new [] {oldChat,wps});
+            AppPolicy.RegisterApproved(approved,new [] {newChat});
+            Assert(approved.Count==2 && AppPolicy.SelectApproved(approved,"ChatGPT").Path==Native.CanonicalPath(newChat),"rediscovery replaces the earlier ChatGPT version rather than appending it");
+            Assert(approved.Any(a=>a.Name=="WPS · wps"),"confirming ChatGPT preserves other approved modules");
+            approved.Insert(0,new AllowedApp {Name="ChatGPT",Path=Path.Combine(root,"removed package","ChatGPT.exe"),Sha256="old"});
+            Assert(AppPolicy.SelectApproved(approved,"ChatGPT").Path==Native.CanonicalPath(newChat),"missing old ChatGPT cannot mask the confirmed current version");
+            string backupWps=Path.Combine(root,"office","wps.exe_bk"); File.WriteAllText(backupWps,"backup");
+            approved.Add(new AllowedApp {Name="WPS · wps",Path=backupWps,Sha256="backup"});
+            approved.Add(new AllowedApp {Name="ChatGPT",Path=newChat,Sha256=Native.Hash(newChat)});
+            Assert(AppPolicy.PruneApproved(approved)==3 && approved.Count==2,"startup cleanup removes missing paths backups and duplicate entries");
+            var policy=new AppPolicy(); policy.Configure(approved);
+            Assert(policy.AllowsPath(Native.CanonicalPath(newChat)),"cleaned approved app remains allowed for focus");
+            var shortPath=new StringBuilder(32768); uint shortLength=GetShortPathName(wps,shortPath,(uint)shortPath.Capacity);
+            Assert(shortLength>0 && Native.CanonicalPath(shortPath.ToString())==Native.CanonicalPath(wps),"short and long Windows file paths share one canonical identity");
+            approved.Add(new AllowedApp {Name="WPS · wps",Path=shortPath.ToString(),Sha256=Native.Hash(wps)});
+            AppPolicy.PruneApproved(approved);
+            Assert(approved.Count(a=>a.Name=="WPS · wps")==1,"short path alias does not duplicate the WPS installation");
+            string confirmedFingerprint=AppPolicy.SelectApproved(approved,"ChatGPT").Sha256;
+            File.WriteAllText(newChat,"updated without confirmation"); AppPolicy.PruneApproved(approved);
+            Assert(AppPolicy.SelectApproved(approved,"ChatGPT").Sha256==confirmedFingerprint,"cleanup never approves a changed executable fingerprint");
+            bool refusedUpdated=false; try { policy.Configure(approved); } catch(InvalidOperationException) {refusedUpdated=true;}
+            Assert(refusedUpdated,"updated executable still requires explicit reconfirmation");
+            bool registrationFailed=false; try { AppPolicy.RegisterApproved(approved,new [] {wps,Path.Combine(root,"not installed","ChatGPT.exe")}); } catch(IOException) {registrationFailed=true;}
+            Assert(registrationFailed && approved.Count==2 && AppPolicy.SelectApproved(approved,"ChatGPT").Sha256==confirmedFingerprint,"failed rediscovery leaves existing approvals unchanged");
             var chord=new UnlockChord(); chord.Update(27,true); chord.Update(162,true); chord.Update(160,true);
             Assert(!chord.Complete,"three keys cannot unlock"); chord.Update(46,true); Assert(chord.Complete,"exact four-key chord detected");
             chord.Update(27,false); Assert(!chord.Complete,"releasing a required key cancels chord");
